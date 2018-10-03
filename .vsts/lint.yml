@@ -10,15 +10,17 @@ steps:
 - bash: |
     chromium_revision="$(grep -A1 chromium_version DEPS | tr -d '\n' | cut -d\' -f4)"
     buildtools_revision="$(curl -sL "https://chromium.googlesource.com/chromium/src/+/${chromium_revision}/DEPS?format=TEXT" | base64 -d | grep buildtools_revision -A1 | tr -d '\n' | cut -d\' -f4)"
-    gclient config 
-    git clone https://chromium.googlesource.com/chromium/buildtools
-    (cd buildtools && git checkout "$buildtools_revision")
+    gclient config
+    git clone https://chromium.googlesource.com/chromium/buildtools "${AGENT_TEMPDIRECTORY}/buildtools"
+    (cd "${AGENT_TEMPDIRECTORY}/buildtools" && git checkout "$buildtools_revision")
+
     export PATH="$PATH:${AGENT_BUILDDIRECTORY}/third_party/depot_tools"
-    download_from_google_storage --bucket chromium-gn -s buildtools/linux64/gn.sha1
+    download_from_google_storage --bucket chromium-gn -s "${AGENT_TEMPDIRECTORY}/buildtools/linux64/gn.sha1"
+  displayName: Download gn binary
 
 - bash: |
     export PATH="$PATH:${AGENT_BUILDDIRECTORY}/third_party/depot_tools"
-    export CHROMIUM_BUILDTOOLS_DIR="$PWD/buildtools"
+    export CHROMIUM_BUILDTOOLS_DIR="$AGENT_TEMPDIRECTORY/buildtools"
     echo "##vso[task.setvariable variable=PATH]$PATH"
     npm install
     npm run lint

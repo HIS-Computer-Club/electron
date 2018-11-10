@@ -8,19 +8,20 @@
 #include <vector>
 
 #include "atom/common/atom_version.h"
-#include "atom/common/chrome_version.h"
 #include "atom/common/options_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/common/chrome_version.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "content/public/common/user_agent.h"
 #include "electron/buildflags/buildflags.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "url/url_constants.h"
 // In SHARED_INTERMEDIATE_DIR.
 #include "widevine_cdm_version.h"  // NOLINT(build/include)
@@ -41,8 +42,11 @@ namespace atom {
 namespace {
 
 #if defined(WIDEVINE_CDM_AVAILABLE)
-bool IsWidevineAvailable(base::FilePath* cdm_path,
-                         std::vector<media::VideoCodec>* codecs_supported) {
+bool IsWidevineAvailable(
+    base::FilePath* cdm_path,
+    std::vector<media::VideoCodec>* codecs_supported,
+    base::flat_set<media::CdmSessionType>* session_types_supported,
+    base::flat_set<media::EncryptionMode>* modes_supported) {
   static enum {
     NOT_CHECKED,
     FOUND,
@@ -67,6 +71,15 @@ bool IsWidevineAvailable(base::FilePath* cdm_path,
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
     codecs_supported->push_back(media::VideoCodec::kCodecH264);
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
+    // TODO(crbug.com/767941): Push persistent-license support info here once
+    // we check in a new CDM that supports it on Linux.
+    session_types_supported->insert(media::CdmSessionType::kTemporary);
+#if defined(OS_CHROMEOS)
+    session_types_supported->insert(media::CdmSessionType::kPersistentLicense);
+#endif  // defined(OS_CHROMEOS)
+
+    modes_supported->insert(media::EncryptionMode::kCenc);
 
     return true;
   }
@@ -181,6 +194,24 @@ base::string16 AtomContentClient::GetLocalizedString(int message_id) const {
   return l10n_util::GetStringUTF16(message_id);
 }
 
+base::StringPiece AtomContentClient::GetDataResource(
+    int resource_id,
+    ui::ScaleFactor scale_factor) const {
+  return ui::ResourceBundle::GetSharedInstance().GetRawDataResourceForScale(
+      resource_id, scale_factor);
+}
+
+gfx::Image& AtomContentClient::GetNativeImageNamed(int resource_id) const {
+  return ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+      resource_id);
+}
+
+base::RefCountedMemory* AtomContentClient::GetDataResourceBytes(
+    int resource_id) const {
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytes(
+      resource_id);
+}
+
 void AtomContentClient::AddAdditionalSchemes(Schemes* schemes) {
   schemes->standard_schemes.push_back("chrome-extension");
 
@@ -198,8 +229,8 @@ void AtomContentClient::AddAdditionalSchemes(Schemes* schemes) {
 
 void AtomContentClient::AddPepperPlugins(
     std::vector<content::PepperPluginInfo>* plugins) {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 #if BUILDFLAG(ENABLE_PEPPER_FLASH)
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   AddPepperFlashFromCommandLine(command_line, plugins);
 #endif  // BUILDFLAG(ENABLE_PEPPER_FLASH)
   ComputeBuiltInPlugins(plugins);
@@ -212,8 +243,11 @@ void AtomContentClient::AddContentDecryptionModules(
 #if defined(WIDEVINE_CDM_AVAILABLE)
     base::FilePath cdm_path;
     std::vector<media::VideoCodec> video_codecs_supported;
-    bool supports_persistent_license = false;
-    if (IsWidevineAvailable(&cdm_path, &video_codecs_supported)) {
+    base::flat_set<media::CdmSessionType> session_types_supported;
+    base::flat_set<media::EncryptionMode> encryption_modes_supported;
+    if (IsWidevineAvailable(&cdm_path, &video_codecs_supported,
+                            &session_types_supported,
+                            &encryption_modes_supported)) {
       base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
       auto cdm_version_string =
           command_line->GetSwitchValueASCII(switches::kWidevineCdmVersion);
@@ -223,10 +257,13 @@ void AtomContentClient::AddContentDecryptionModules(
       const base::Version version(cdm_version_string);
       DCHECK(version.IsValid());
 
+      content::CdmCapability capability(
+          video_codecs_supported, encryption_modes_supported,
+          session_types_supported, base::flat_set<media::CdmProxy::Protocol>());
+
       cdms->push_back(content::CdmInfo(
           kWidevineCdmDisplayName, kWidevineCdmGuid, version, cdm_path,
-          kWidevineCdmFileSystemId, video_codecs_supported,
-          supports_persistent_license, kWidevineKeySystem, false));
+          kWidevineCdmFileSystemId, capability, kWidevineKeySystem, false));
     }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE)
   }

@@ -4,10 +4,12 @@ import("buildflags/buildflags.gni")
 import("electron_paks.gni")
 import("filenames.gni")
 import("//build/config/locales.gni")
+import("//build/config/ui.gni")
 import("//build/config/win/manifest.gni")
 import("//pdf/features.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//third_party/ffmpeg/ffmpeg_options.gni")
-import("//third_party/widevine/cdm/widevine.gni")
+import("//tools/grit/grit_rule.gni")
 import("//tools/grit/repack.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
 import("//v8/snapshot_toolchain.gni")
@@ -154,6 +156,7 @@ asar("js2asar") {
       "lib/browser/api/views/button.js",
       "lib/browser/api/views/label-button.js",
       "lib/browser/api/views/layout-manager.js",
+      "lib/browser/api/views/md-text-button.js",
       "lib/browser/api/views/text-field.js",
     ]
   }
@@ -171,6 +174,26 @@ asar("app2asar") {
   root = "default_app"
 }
 
+grit("resources") {
+  source = "electron_resources.grd"
+
+  outputs = [
+    "grit/electron_resources.h",
+    "electron_resources.pak",
+  ]
+
+  grit_flags = [
+    "-E",
+    "target_gen_dir=" + rebase_path(target_gen_dir, root_build_dir),
+  ]
+
+  deps = [
+    ":electron_content_manifest_overlays",
+  ]
+
+  output_dir = "$target_gen_dir"
+}
+
 static_library("electron_lib") {
   configs += [ "//v8:external_startup_data" ]
   configs += [ "//third_party/electron_node:node_internals" ]
@@ -179,26 +202,34 @@ static_library("electron_lib") {
 
   deps = [
     ":atom_js2c",
-    "brightray",
     "buildflags",
     "chromium_src:chrome",
     "native_mate",
     "//base",
+    "//base:base_static",
     "//base:i18n",
-    "//chrome/common:constants",
+    "//chrome/app/resources:platform_locale_settings",
+    "//components/certificate_transparency",
+    "//components/net_log",
     "//components/network_session_configurator/common",
     "//components/prefs",
-    "//components/printing/common",
+    "//components/spellcheck/renderer",
     "//components/viz/service",
     "//content/public/app:both",
+    "//content/public/browser",
     "//content/public/child",
-    "//device/geolocation",
+    "//content/public/common:service_names",
+    "//content/shell:copy_shell_resources",
     "//gin",
+    "//media/mojo/interfaces",
+    "//net:extras",
     "//net:net_resources",
+    "//net:net_with_v8",
     "//ppapi/host",
     "//ppapi/proxy",
     "//ppapi/shared_impl",
-    "//printing",
+    "//services/device/public/mojom",
+    "//services/proxy_resolver:lib",
     "//skia",
     "//third_party/blink/public:blink",
     "//third_party/boringssl",
@@ -212,12 +243,6 @@ static_library("electron_lib") {
     "//ui/views",
     "//v8",
   ]
-
-  # TODO: this requires a visibility patch to chromium src. it would be better
-  # to use the publicly-available API, which I think is mojo-based. Once
-  # electron switches to using the public API, we can remove this from the deps
-  # list and remove the visibility patch from chromium.
-  deps += [ "//services/device/wake_lock/power_save_blocker" ]
 
   include_dirs = [
     "chromium_src",
@@ -247,6 +272,12 @@ static_library("electron_lib") {
     extra_source_filters += [
       "*\bwin_*.h",
       "*\bwin_*.cc",
+    ]
+  }
+  if (!is_posix) {
+    extra_source_filters += [
+      "*_posix.cc",
+      "*_posix.h",
     ]
   }
   if (is_mac) {
@@ -328,11 +359,10 @@ static_library("electron_lib") {
       # Disable warnings for g_settings_list_schemas.
       "GLIB_DISABLE_DEPRECATION_WARNINGS",
     ]
-    sources += filenames.lib_sources_linux
+
     sources += filenames.lib_sources_nss
   }
   if (is_win) {
-    sources += filenames.lib_sources_win
     libs += [ "dwmapi.lib" ]
   }
   if (is_linux || is_win) {
@@ -394,23 +424,24 @@ static_library("electron_lib") {
       "atom/browser/api/views/atom_api_label_button.h",
       "atom/browser/api/views/atom_api_layout_manager.cc",
       "atom/browser/api/views/atom_api_layout_manager.h",
+      "atom/browser/api/views/atom_api_md_text_button.cc",
+      "atom/browser/api/views/atom_api_md_text_button.h",
       "atom/browser/api/views/atom_api_text_field.cc",
       "atom/browser/api/views/atom_api_text_field.h",
     ]
   }
 
-  if (enable_pepper_flash) {
-    deps += [ "components/pepper_flash" ]
+  if (enable_basic_printing) {
+    sources += [
+      "atom/browser/printing/print_preview_message_handler.cc",
+      "atom/browser/printing/print_preview_message_handler.h",
+      "atom/renderer/printing/print_render_frame_helper_delegate.cc",
+      "atom/renderer/printing/print_render_frame_helper_delegate.h",
+    ]
   }
 
-  if (enable_widevine) {
-    sources += [
-      "//chrome/renderer/media/chrome_key_systems.cc",
-      "//chrome/renderer/media/chrome_key_systems.h",
-      "//chrome/renderer/media/chrome_key_systems_provider.cc",
-      "//chrome/renderer/media/chrome_key_systems_provider.h",
-    ]
-    deps += [ "//components/cdm/renderer" ]
+  if (enable_pepper_flash) {
+    deps += [ "components/pepper_flash" ]
   }
 }
 
@@ -597,7 +628,7 @@ if (is_mac) {
       "$root_out_dir/$electron_login_helper_name.app",
     ]
     outputs = [
-      "{{bundle_contents_dir}}/Library/LoginItems",
+      "{{bundle_contents_dir}}/Library/LoginItems/{{source_file_part}}",
     ]
   }
 
@@ -655,7 +686,6 @@ if (is_mac) {
       ":electron_lib",
       ":js2asar",
       ":packed_resources",
-      "//build/config:exe_and_shlib_deps",
       "//content:sandbox_helper_win",
       "//ui/strings",
     ]
@@ -713,82 +743,25 @@ if (is_mac) {
         "/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll",
         "/DELAYLOAD:api-ms-win-core-winrt-string-l1-1-0.dll",
       ]
+
+      # This is to support renaming of electron.exe. node-gyp has hard-coded
+      # executable names which it will recognise as node. This module definition
+      # file claims that the electron executable is in fact named "node.exe",
+      # which is one of the executable names that node-gyp recognizes.
+      # See https://github.com/nodejs/node-gyp/commit/52ceec3a6d15de3a8f385f43dbe5ecf5456ad07a
+      ldflags += [ "/DEF:" + rebase_path("build/electron.def", root_build_dir) ]
+      inputs = [
+        "build/electron.def",
+      ]
     }
     if (is_linux) {
+      ldflags = [ "-pie" ]
+
       if (!is_component_build && is_component_ffmpeg) {
         configs += [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
       }
     }
   }
-}
-
-group("electron_tests") {
-  testonly = true
-
-  deps = [
-    ":chromium_browsertests",
-    ":chromium_unittests",
-  ]
-}
-
-group("chromium_unittests") {
-  testonly = true
-
-  deps = [
-    "//base:base_unittests",
-    "//cc:cc_unittests",
-    "//cc/blink:cc_blink_unittests",
-    "//content/test:content_unittests",
-    "//crypto:crypto_unittests",
-    "//device:device_unittests",
-    "//gin:gin_unittests",
-    "//gpu:gpu_unittests",
-    "//ipc:ipc_tests",
-    "//media:media_unittests",
-    "//media/capture:capture_unittests",
-    "//media/midi:midi_unittests",
-    "//media/mojo:media_mojo_unittests",
-    "//mojo:mojo_unittests",
-    "//mojo/common:mojo_common_unittests",
-    "//net:net_unittests",
-    "//ppapi:ppapi_unittests",
-    "//printing:printing_unittests",
-    "//skia:skia_unittests",
-    "//sql:sql_unittests",
-    "//storage:storage_unittests",
-    "//third_party/angle/src/tests:angle_unittests",
-    "//third_party/blink/public:all_blink",
-    "//third_party/blink/public:test_support",
-    "//third_party/leveldatabase:env_chromium_unittests",
-    "//tools/gn:gn_unittests",
-    "//ui/base:ui_base_unittests",
-    "//ui/compositor:compositor_unittests",
-    "//ui/display:display_unittests",
-    "//ui/events:events_unittests",
-    "//ui/gl:gl_unittests",
-    "//url:url_unittests",
-    "//url/ipc:url_ipc_unittests",
-    "//v8/test/unittests:unittests",
-  ]
-
-  if (is_linux) {
-    deps += [
-      "//net:disk_cache_memory_test",
-      "//sandbox/linux:sandbox_linux_unittests",
-    ]
-
-    if (use_dbus) {
-      deps += [ "//dbus:dbus_unittests" ]
-    }
-  }
-}
-
-group("chromium_browsertests") {
-  testonly = true
-
-  deps = [
-    "//content/test:content_browsertests",
-  ]
 }
 
 template("dist_zip") {
@@ -849,10 +822,10 @@ group("licenses") {
 
 copy("electron_version") {
   sources = [
-    "VERSION"
+    "VERSION",
   ]
   outputs = [
-    "$root_build_dir/version"
+    "$root_build_dir/version",
   ]
 }
 
@@ -889,6 +862,7 @@ dist_zip("electron_chromedriver_zip") {
 dist_zip("electron_mksnapshot_zip") {
   data_deps = [
     "//v8:mksnapshot($v8_snapshot_toolchain)",
+    "//tools/v8_context_snapshot:v8_context_snapshot_generator",
     ":licenses",
   ]
   outputs = [
@@ -897,7 +871,30 @@ dist_zip("electron_mksnapshot_zip") {
 }
 
 group("electron") {
-  deps = [
+  public_deps = [
     ":electron_app",
   ]
+}
+
+group("electron_content_manifest_overlays") {
+  deps = [
+    ":electron_content_browser_manifest_overlay",
+    ":electron_content_packaged_services_manifest_overlay",
+  ]
+}
+
+service_manifest("electron_content_packaged_services_manifest_overlay") {
+  source = "//electron/manifests/electron_content_packaged_services_manifest_overlay.json"
+  packaged_services = [ "//services/proxy_resolver:proxy_resolver_manifest" ]
+
+  if (enable_basic_printing) {
+    packaged_services += [
+      "//chrome/services/printing:manifest",
+      "//components/services/pdf_compositor:pdf_compositor_manifest",
+    ]
+  }
+}
+
+service_manifest("electron_content_browser_manifest_overlay") {
+  source = "//electron/manifests/electron_content_browser_manifest_overlay.json"
 }

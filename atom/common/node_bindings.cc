@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/common/api/event_emitter_caller.h"
@@ -18,6 +19,7 @@
 #include "base/environment.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -36,11 +38,11 @@
   V(atom_browser_debugger)                   \
   V(atom_browser_dialog)                     \
   V(atom_browser_download_item)              \
+  V(atom_browser_event)                      \
   V(atom_browser_global_shortcut)            \
   V(atom_browser_in_app_purchase)            \
   V(atom_browser_menu)                       \
   V(atom_browser_net)                        \
-  V(atom_browser_net_log)                    \
   V(atom_browser_power_monitor)              \
   V(atom_browser_power_save_blocker)         \
   V(atom_browser_protocol)                   \
@@ -71,6 +73,7 @@
   V(atom_browser_button)         \
   V(atom_browser_label_button)   \
   V(atom_browser_layout_manager) \
+  V(atom_browser_md_text_button) \
   V(atom_browser_text_field)
 
 #define ELECTRON_DESKTOP_CAPTURER_MODULE(V) V(atom_browser_desktop_capturer)
@@ -136,7 +139,7 @@ std::unique_ptr<const char* []> StringVectorToArgArray(
 base::FilePath GetResourcesPath(bool is_browser) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
   base::FilePath exec_path(command_line->GetProgram());
-  PathService::Get(base::FILE_EXE, &exec_path);
+  base::PathService::Get(base::FILE_EXE, &exec_path);
 
   base::FilePath resources_path =
 #if defined(OS_MACOSX)
@@ -214,15 +217,73 @@ void NodeBindings::Initialize() {
   // Explicitly register electron's builtin modules.
   RegisterBuiltinModules();
 
-  // Init node.
-  // (we assume node::Init would not modify the parameters under embedded mode).
-  // NOTE: If you change this line, please ping @codebytere or @MarshallOfSound
-  node::Init(nullptr, nullptr, nullptr, nullptr);
+  // pass non-null program name to argv so it doesn't crash
+  // trying to index into a nullptr
+  int argc = 1;
+  int exec_argc = 0;
+  const char* prog_name = "electron";
+  const char** argv = &prog_name;
+  const char** exec_argv = nullptr;
+
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
+  if (env->HasVar("NODE_OPTIONS")) {
+    base::FilePath exe_path;
+    base::PathService::Get(base::FILE_EXE, &exe_path);
+#if defined(OS_WIN)
+    std::string path = base::UTF16ToUTF8(exe_path.value());
+#else
+    std::string path = exe_path.value();
+#endif
+    std::transform(path.begin(), path.end(), path.begin(), ::tolower);
+
+#if defined(OS_WIN)
+    const bool is_packaged_app = path == "electron.exe";
+#else
+    const bool is_packaged_app = path == "electron";
+#endif
+
+    // explicitly disallow NODE_OPTIONS in packaged apps
+    if (is_packaged_app) {
+      LOG(WARNING) << "NODE_OPTIONs are not supported in packaged apps";
+      env->SetVar("NODE_OPTIONS", "");
+    } else {
+      const std::vector<std::string> disallowed = {
+          "--openssl-config", "--use-bundled-ca", "--use-openssl-ca",
+          "--force-fips", "--enable-fips"};
+
+      std::string options;
+      env->GetVar("NODE_OPTIONS", &options);
+      std::vector<std::string> parts = base::SplitString(
+          options, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+
+      // parse passed options for unsupported options
+      // and remove them from the options list
+      std::string new_options = options;
+      for (const auto& disallow : disallowed) {
+        for (const auto& part : parts) {
+          if (part.find(disallow) != std::string::npos) {
+            LOG(WARNING) << "The NODE_OPTION" << disallow
+                         << "is not supported in Electron";
+            new_options.erase(new_options.find(part), part.length());
+            break;
+          }
+        }
+      }
+
+      // overwrite new NODE_OPTIONS without unsupported variables
+      if (new_options != options)
+        env->SetVar("NODE_OPTIONS", new_options);
+    }
+  }
+
+  // TODO(codebytere): this is going to be deprecated in the near future
+  // in favor of Init(std::vector<std::string>* argv,
+  //        std::vector<std::string>* exec_argv)
+  node::Init(&argc, argv, &exec_argc, &exec_argv);
 
 #if defined(OS_WIN)
   // uv_init overrides error mode to suppress the default crash dialog, bring
   // it back if user wants to show it.
-  std::unique_ptr<base::Environment> env(base::Environment::Create());
   if (browser_env_ == BROWSER || env->HasVar("ELECTRON_DEFAULT_ERROR_MODE"))
     SetErrorMode(GetErrorMode() & ~SEM_NOGPFAULTERRORBOX);
 #endif
@@ -278,14 +339,14 @@ node::Environment* NodeBindings::CreateEnvironment(
   }
 
   mate::Dictionary process(context->GetIsolate(), env->process_object());
-  process.Set("type", process_type);
+  process.SetReadOnly("type", process_type);
   process.Set("resourcesPath", resources_path);
   // Do not set DOM globals for renderer process.
   if (browser_env_ != BROWSER)
     process.Set("_noBrowserGlobals", resources_path);
   // The path to helper app.
   base::FilePath helper_exec_path;
-  PathService::Get(content::CHILD_PROCESS_EXE, &helper_exec_path);
+  base::PathService::Get(content::CHILD_PROCESS_EXE, &helper_exec_path);
   process.Set("helperExecPath", helper_exec_path);
 
   return env;

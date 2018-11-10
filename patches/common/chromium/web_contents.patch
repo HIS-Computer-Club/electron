@@ -1,8 +1,14 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anonymous <anonymous@electronjs.org>
+Date: Thu, 20 Sep 2018 17:46:53 -0700
+Subject: web_contents.patch
+
+
 diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
-index 018534073da1..48f3d0e7343b 100644
+index 26384f823b511ca720ae474e950d75fd19b65111..64ad6ca91d9331a09d09f7e29b7c24a0c12852a2 100644
 --- a/content/browser/web_contents/web_contents_impl.cc
 +++ b/content/browser/web_contents/web_contents_impl.cc
-@@ -1759,6 +1759,12 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
+@@ -1931,6 +1931,12 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
    std::string unique_name;
    frame_tree_.root()->SetFrameName(params.main_frame_name, unique_name);
  
@@ -15,7 +21,7 @@ index 018534073da1..48f3d0e7343b 100644
    WebContentsViewDelegate* delegate =
        GetContentClient()->browser()->GetWebContentsViewDelegate(this);
  
-@@ -1774,6 +1780,7 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
+@@ -1946,6 +1952,7 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
            &render_view_host_delegate_view_);
      }
    }
@@ -24,7 +30,7 @@ index 018534073da1..48f3d0e7343b 100644
    CHECK(view_.get());
  
 diff --git a/content/browser/web_contents/web_contents_view_guest.cc b/content/browser/web_contents/web_contents_view_guest.cc
-index 699570cc1390..454830098cb9 100644
+index 44c68ed25b664b40b12dd843a18f7fe18d9cdfa9..c7b0c747fa4132a076719f7a4b3aad84f526aee3 100644
 --- a/content/browser/web_contents/web_contents_view_guest.cc
 +++ b/content/browser/web_contents/web_contents_view_guest.cc
 @@ -67,21 +67,27 @@ gfx::NativeWindow WebContentsViewGuest::GetTopLevelNativeWindow() const {
@@ -38,7 +44,7 @@ index 699570cc1390..454830098cb9 100644
    // view hierarchy. We add this view as embedder's child here.
    // This would go in WebContentsViewGuest::CreateView, but that is too early to
    // access embedder_web_contents(). Therefore, we do it here.
-   if (!base::FeatureList::IsEnabled(features::kMash))
+   if (features::IsAshInBrowserProcess())
 -    parent_view->GetNativeView()->AddChild(platform_view_->GetNativeView());
 +    if (parent_view->GetNativeView() != platform_view_->GetNativeView())
 +      parent_view->GetNativeView()->AddChild(platform_view_->GetNativeView());
@@ -49,7 +55,7 @@ index 699570cc1390..454830098cb9 100644
  #if defined(USE_AURA)
 +  if (!platform_view_->GetNativeView())
 +    return;
-   if (!base::FeatureList::IsEnabled(features::kMash)) {
+   if (features::IsAshInBrowserProcess()) {
 -    old_parent_view->GetNativeView()->RemoveChild(
 -        platform_view_->GetNativeView());
 +    if (old_parent_view->GetNativeView() != platform_view_->GetNativeView())
@@ -58,7 +64,7 @@ index 699570cc1390..454830098cb9 100644
    }
  #endif  // defined(USE_AURA)
  }
-@@ -146,11 +152,22 @@ RenderWidgetHostViewBase* WebContentsViewGuest::CreateViewForWidget(
+@@ -144,11 +150,22 @@ RenderWidgetHostViewBase* WebContentsViewGuest::CreateViewForWidget(
          render_widget_host->GetView());
    }
  
@@ -86,10 +92,10 @@ index 699570cc1390..454830098cb9 100644
  
  RenderWidgetHostViewBase* WebContentsViewGuest::CreateViewForPopupWidget(
 diff --git a/content/public/browser/web_contents.h b/content/public/browser/web_contents.h
-index a13db5f4dd61..621124decfdc 100644
+index 0f82f91e437c495b92662c9816225687430ec8a4..0deb4d93fffbd7392cc1a391d9503946434ad1ba 100644
 --- a/content/public/browser/web_contents.h
 +++ b/content/public/browser/web_contents.h
-@@ -69,9 +69,12 @@ class BrowserPluginGuestDelegate;
+@@ -76,9 +76,12 @@ class BrowserPluginGuestDelegate;
  class InterstitialPage;
  class RenderFrameHost;
  class RenderViewHost;
@@ -101,10 +107,10 @@ index a13db5f4dd61..621124decfdc 100644
 +class WebContentsView;
  struct CustomContextMenuContext;
  struct DropData;
- struct Manifest;
-@@ -172,6 +175,10 @@ class WebContents : public PageNavigator,
-     // navigation requires a dedicated or privileged process, such as a WebUI.
-     bool initialize_renderer;
+ struct MHTMLGenerationParams;
+@@ -215,6 +218,10 @@ class WebContents : public PageNavigator,
+       kInitializeAndWarmupRendererProcess,
+     } desired_renderer_state;
  
 +    // Optionally specify the view and delegate view.
 +    content::WebContentsView* view = nullptr;
@@ -112,4 +118,4 @@ index a13db5f4dd61..621124decfdc 100644
 +
      // Sandboxing flags set on the new WebContents.
      blink::WebSandboxFlags starting_sandbox_flags;
-   };
+ 

@@ -358,6 +358,28 @@ describe('app module', () => {
       })
       w = new BrowserWindow({ show: false })
     })
+
+    it('should emit remote-require event when remote.require() is invoked', (done) => {
+      app.once('remote-require', (event, webContents, moduleName) => {
+        expect(webContents).to.equal(w.webContents)
+        expect(moduleName).to.equal('test')
+        done()
+      })
+      w = new BrowserWindow({ show: false })
+      w.loadURL('about:blank')
+      w.webContents.executeJavaScript(`require('electron').remote.require('test')`)
+    })
+
+    it('should emit remote-get-global event when remote.getGlobal() is invoked', (done) => {
+      app.once('remote-get-global', (event, webContents, globalName) => {
+        expect(webContents).to.equal(w.webContents)
+        expect(globalName).to.equal('test')
+        done()
+      })
+      w = new BrowserWindow({ show: false })
+      w.loadURL('about:blank')
+      w.webContents.executeJavaScript(`require('electron').remote.getGlobal('test')`)
+    })
   })
 
   describe('app.setBadgeCount', () => {
@@ -432,31 +454,13 @@ describe('app module', () => {
       app.setLoginItemSettings({ openAtLogin: false, path: updateExe, args: processStartArgs })
     })
 
-    it('returns the login item status of the app', done => {
+    it('sets and returns the app as a login item', done => {
       app.setLoginItemSettings({ openAtLogin: true })
-      expect(app.getLoginItemSettings()).to.deep.equal({
-        openAtLogin: true,
-        openAsHidden: false,
-        wasOpenedAtLogin: false,
-        wasOpenedAsHidden: false,
-        restoreState: false
-      })
-
-      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-      expect(app.getLoginItemSettings()).to.deep.equal({
-        openAtLogin: true,
-        openAsHidden: process.platform === 'darwin' && !process.mas, // Only available on macOS
-        wasOpenedAtLogin: false,
-        wasOpenedAsHidden: false,
-        restoreState: false
-      })
-
-      app.setLoginItemSettings({})
       // Wait because login item settings are not applied immediately in MAS build
-      const delay = process.mas ? 100 : 0
+      const delay = process.mas ? 250 : 0
       setTimeout(() => {
         expect(app.getLoginItemSettings()).to.deep.equal({
-          openAtLogin: false,
+          openAtLogin: true,
           openAsHidden: false,
           wasOpenedAtLogin: false,
           wasOpenedAsHidden: false,
@@ -464,6 +468,47 @@ describe('app module', () => {
         })
         done()
       }, delay)
+    })
+
+    it('adds a login item that loads in hidden mode', done => {
+      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
+      // Wait because login item settings are not applied immediately in MAS build
+      const delay = process.mas ? 250 : 0
+      setTimeout(() => {
+        expect(app.getLoginItemSettings()).to.deep.equal({
+          openAtLogin: true,
+          openAsHidden: process.platform === 'darwin' && !process.mas, // Only available on macOS
+          wasOpenedAtLogin: false,
+          wasOpenedAsHidden: false,
+          restoreState: false
+        })
+        done()
+      }, delay)
+    })
+
+    it('correctly sets and unsets the LoginItem', function () {
+      expect(app.getLoginItemSettings().openAtLogin).to.be.false()
+
+      app.setLoginItemSettings({ openAtLogin: true })
+      expect(app.getLoginItemSettings().openAtLogin).to.be.true()
+
+      app.setLoginItemSettings({ openAtLogin: false })
+      expect(app.getLoginItemSettings().openAtLogin).to.be.false()
+    })
+
+    it('correctly sets and unsets the LoginItem as hidden', function () {
+      if (process.platform !== 'darwin' || process.mas) this.skip()
+
+      expect(app.getLoginItemSettings().openAtLogin).to.be.false()
+      expect(app.getLoginItemSettings().openAsHidden).to.be.false()
+
+      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
+      expect(app.getLoginItemSettings().openAtLogin).to.be.true()
+      expect(app.getLoginItemSettings().openAsHidden).to.be.true()
+
+      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: false })
+      expect(app.getLoginItemSettings().openAtLogin).to.be.true()
+      expect(app.getLoginItemSettings().openAsHidden).to.be.false()
     })
 
     it('allows you to pass a custom executable and arguments', function () {
@@ -847,7 +892,7 @@ describe('app module', () => {
     it('succeeds with complete GPUInfo', async () => {
       const completeInfo = await getGPUInfo('complete')
       if (process.platform === 'linux') {
-        // For linux complete info is same as basic info
+        // For linux and macOS complete info is same as basic info
         await verifyBasicGPUInfo(completeInfo)
         const basicInfo = await getGPUInfo('basic')
         expect(completeInfo).to.deep.equal(basicInfo)
@@ -863,15 +908,12 @@ describe('app module', () => {
 
     it('fails for invalid info_type', () => {
       const invalidType = 'invalid'
-      const errorMessage =
-          `app.getGPUInfo() didn't fail for the "${invalidType}" info type`
-      return app.getGPUInfo(invalidType).then(
-        () => Promise.reject(new Error(errorMessage)),
-        () => Promise.resolve())
+      const expectedErrorMessage = "Invalid info type. Use 'basic' or 'complete'"
+      return expect(app.getGPUInfo(invalidType)).to.eventually.be.rejectedWith(expectedErrorMessage)
     })
   })
 
-  describe('mixed sandbox option', () => {
+  describe('sandbox options', () => {
     let appProcess = null
     let server = null
     const socketPath = process.platform === 'win32' ? '\\\\.\\pipe\\electron-mixed-sandbox' : '/tmp/electron-mixed-sandbox'
@@ -903,10 +945,60 @@ describe('app module', () => {
       })
     })
 
-    describe('when app.enableMixedSandbox() is called', () => {
-      it('adds --enable-sandbox to render processes created with sandbox: true', done => {
+    describe('when app.enableSandbox() is called', () => {
+      it('adds --enable-sandbox to all renderer processes', done => {
         const appPath = path.join(__dirname, 'fixtures', 'api', 'mixed-sandbox-app')
-        appProcess = ChildProcess.spawn(remote.process.execPath, [appPath])
+        appProcess = ChildProcess.spawn(remote.process.execPath, [appPath, '--app-enable-sandbox'])
+
+        server.once('error', error => { done(error) })
+
+        server.on('connection', client => {
+          client.once('data', data => {
+            const argv = JSON.parse(data)
+            expect(argv.sandbox).to.include('--enable-sandbox')
+            expect(argv.sandbox).to.not.include('--no-sandbox')
+
+            expect(argv.noSandbox).to.include('--enable-sandbox')
+            expect(argv.noSandbox).to.not.include('--no-sandbox')
+
+            expect(argv.noSandboxDevtools).to.be.true()
+            expect(argv.sandboxDevtools).to.be.true()
+
+            done()
+          })
+        })
+      })
+    })
+
+    describe('when the app is launched with --enable-sandbox', () => {
+      it('adds --enable-sandbox to all renderer processes', done => {
+        const appPath = path.join(__dirname, 'fixtures', 'api', 'mixed-sandbox-app')
+        appProcess = ChildProcess.spawn(remote.process.execPath, [appPath, '--enable-sandbox'])
+
+        server.once('error', error => { done(error) })
+
+        server.on('connection', client => {
+          client.once('data', data => {
+            const argv = JSON.parse(data)
+            expect(argv.sandbox).to.include('--enable-sandbox')
+            expect(argv.sandbox).to.not.include('--no-sandbox')
+
+            expect(argv.noSandbox).to.include('--enable-sandbox')
+            expect(argv.noSandbox).to.not.include('--no-sandbox')
+
+            expect(argv.noSandboxDevtools).to.be.true()
+            expect(argv.sandboxDevtools).to.be.true()
+
+            done()
+          })
+        })
+      })
+    })
+
+    describe('when app.enableMixedSandbox() is called', () => {
+      it('adds --enable-sandbox to renderer processes created with sandbox: true', done => {
+        const appPath = path.join(__dirname, 'fixtures', 'api', 'mixed-sandbox-app')
+        appProcess = ChildProcess.spawn(remote.process.execPath, [appPath, '--app-enable-mixed-sandbox'])
 
         server.once('error', error => { done(error) })
 
@@ -919,6 +1011,9 @@ describe('app module', () => {
             expect(argv.noSandbox).to.not.include('--enable-sandbox')
             expect(argv.noSandbox).to.include('--no-sandbox')
 
+            expect(argv.noSandboxDevtools).to.be.true()
+            expect(argv.sandboxDevtools).to.be.true()
+
             done()
           })
         })
@@ -926,7 +1021,7 @@ describe('app module', () => {
     })
 
     describe('when the app is launched with --enable-mixed-sandbox', () => {
-      it('adds --enable-sandbox to render processes created with sandbox: true', done => {
+      it('adds --enable-sandbox to renderer processes created with sandbox: true', done => {
         const appPath = path.join(__dirname, 'fixtures', 'api', 'mixed-sandbox-app')
         appProcess = ChildProcess.spawn(remote.process.execPath, [appPath, '--enable-mixed-sandbox'])
 

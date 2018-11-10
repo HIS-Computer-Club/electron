@@ -13,6 +13,7 @@
 #include "atom/browser/api/gpuinfo_manager.h"
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/atom_browser_main_parts.h"
+#include "atom/browser/atom_paths.h"
 #include "atom/browser/login_handler.h"
 #include "atom/browser/relauncher.h"
 #include "atom/common/atom_command_line.h"
@@ -23,7 +24,6 @@
 #include "atom/common/native_mate_converters/net_converter.h"
 #include "atom/common/native_mate_converters/network_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
-#include "atom/common/node_includes.h"
 #include "atom/common/options_switches.h"
 #include "base/command_line.h"
 #include "base/environment.h"
@@ -32,7 +32,6 @@
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
-#include "brightray/browser/brightray_paths.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/common/chrome_paths.h"
@@ -50,8 +49,15 @@
 #include "net/ssl/client_cert_identity.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "services/network/public/cpp/network_switches.h"
+#include "services/service_manager/sandbox/switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image.h"
+
+// clang-format off
+// This header should be declared at the end to avoid
+// redefinition errors.
+#include "atom/common/node_includes.h"  // NOLINT(build/include_alpha)
+// clang-format on
 
 #if defined(OS_WIN)
 #include "atom/browser/ui/win/jump_list.h"
@@ -389,15 +395,15 @@ IconLoader::IconSize GetIconSizeByString(const std::string& size) {
 // Return the path constant from string.
 int GetPathConstant(const std::string& name) {
   if (name == "appData")
-    return brightray::DIR_APP_DATA;
+    return DIR_APP_DATA;
   else if (name == "userData")
-    return brightray::DIR_USER_DATA;
+    return DIR_USER_DATA;
   else if (name == "cache")
-    return brightray::DIR_CACHE;
+    return DIR_CACHE;
   else if (name == "userCache")
-    return brightray::DIR_USER_CACHE;
+    return DIR_USER_CACHE;
   else if (name == "logs")
-    return brightray::DIR_APP_LOGS;
+    return DIR_APP_LOGS;
   else if (name == "home")
     return base::DIR_HOME;
   else if (name == "temp")
@@ -481,7 +487,7 @@ void OnClientCertificateSelected(
   if (!certs.empty()) {
     scoped_refptr<net::X509Certificate> cert(certs[0].get());
     for (size_t i = 0; i < identities->size(); ++i) {
-      if (cert->Equals((*identities)[i]->certificate())) {
+      if (cert->EqualsExcludingChain((*identities)[i]->certificate())) {
         net::ClientCertIdentity::SelfOwningAcquirePrivateKey(
             std::move((*identities)[i]),
             base::Bind(&GotPrivateKey, delegate, std::move(cert)));
@@ -677,7 +683,7 @@ void App::OnLogin(scoped_refptr<LoginHandler> login_handler,
   content::WebContents* web_contents = login_handler->GetWebContents();
   if (web_contents) {
     prevent_default = Emit(
-        "login", WebContents::CreateFrom(isolate(), web_contents),
+        "login", WebContents::FromOrCreate(isolate(), web_contents),
         request_details, login_handler->auth_info(),
         base::Bind(&PassLoginInformation, base::RetainedRef(login_handler)));
   }
@@ -708,9 +714,12 @@ bool App::CanCreateWindow(
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(opener);
   if (web_contents) {
-    auto api_web_contents = WebContents::CreateFrom(isolate(), web_contents);
-    api_web_contents->OnCreateWindow(target_url, referrer, frame_name,
-                                     disposition, additional_features, body);
+    auto api_web_contents = WebContents::From(isolate(), web_contents);
+    // No need to emit any event if the WebContents is not available in JS.
+    if (!api_web_contents.IsEmpty()) {
+      api_web_contents->OnCreateWindow(target_url, referrer, frame_name,
+                                       disposition, additional_features, body);
+    }
   }
 
   return false;
@@ -729,7 +738,7 @@ void App::AllowCertificateError(
   v8::Locker locker(isolate());
   v8::HandleScope handle_scope(isolate());
   bool prevent_default = Emit(
-      "certificate-error", WebContents::CreateFrom(isolate(), web_contents),
+      "certificate-error", WebContents::FromOrCreate(isolate(), web_contents),
       request_url, net::ErrorToString(cert_error), ssl_info.cert, callback);
 
   // Deny the certificate by default.
@@ -756,7 +765,7 @@ void App::SelectClientCertificate(
 
   bool prevent_default =
       Emit("select-client-certificate",
-           WebContents::CreateFrom(isolate(), web_contents),
+           WebContents::FromOrCreate(isolate(), web_contents),
            cert_request_info->host_and_port.ToString(), std::move(client_certs),
            base::Bind(&OnClientCertificateSelected, isolate(), shared_delegate,
                       shared_identities));
@@ -786,18 +795,21 @@ void App::BrowserChildProcessHostDisconnected(
   ChildProcessDisconnected(base::GetProcId(data.handle));
 }
 
-void App::BrowserChildProcessCrashed(const content::ChildProcessData& data,
-                                     int exit_code) {
+void App::BrowserChildProcessCrashed(
+    const content::ChildProcessData& data,
+    const content::ChildProcessTerminationInfo& info) {
   ChildProcessDisconnected(base::GetProcId(data.handle));
 }
 
-void App::BrowserChildProcessKilled(const content::ChildProcessData& data,
-                                    int exit_code) {
+void App::BrowserChildProcessKilled(
+    const content::ChildProcessData& data,
+    const content::ChildProcessTerminationInfo& info) {
   ChildProcessDisconnected(base::GetProcId(data.handle));
 }
 
 void App::RenderProcessReady(content::RenderProcessHost* host) {
-  ChildProcessLaunched(content::PROCESS_TYPE_RENDERER, host->GetHandle());
+  ChildProcessLaunched(content::PROCESS_TYPE_RENDERER,
+                       host->GetProcess().Handle());
 }
 
 void App::RenderProcessDisconnected(base::ProcessId host_pid) {
@@ -836,7 +848,7 @@ base::FilePath App::GetPath(mate::Arguments* args, const std::string& name) {
   base::FilePath path;
   int key = GetPathConstant(name);
   if (key >= 0)
-    succeed = PathService::Get(key, &path);
+    succeed = base::PathService::Get(key, &path);
   if (!succeed)
     args->ThrowError("Failed to get '" + name + "' path");
   return path;
@@ -853,7 +865,8 @@ void App::SetPath(mate::Arguments* args,
   bool succeed = false;
   int key = GetPathConstant(name);
   if (key >= 0)
-    succeed = PathService::OverrideAndCreateIfNeeded(key, path, true, false);
+    succeed =
+        base::PathService::OverrideAndCreateIfNeeded(key, path, true, false);
   if (!succeed)
     args->ThrowError("Failed to set path");
 }
@@ -885,7 +898,7 @@ bool App::RequestSingleInstanceLock() {
     return true;
 
   base::FilePath user_dir;
-  PathService::Get(brightray::DIR_USER_DATA, &user_dir);
+  base::PathService::Get(DIR_USER_DATA, &user_dir);
 
   auto cb = base::Bind(&App::OnSecondInstance, base::Unretained(this));
 
@@ -934,7 +947,7 @@ bool App::Relaunch(mate::Arguments* js_args) {
 
   if (exec_path.empty()) {
     base::FilePath current_exe_path;
-    PathService::Get(base::FILE_EXE, &current_exe_path);
+    base::PathService::Get(base::FILE_EXE, &current_exe_path);
     argv.push_back(current_exe_path.value());
   } else {
     argv.push_back(exec_path.value());
@@ -1095,7 +1108,7 @@ void App::GetFileIcon(const base::FilePath& path, mate::Arguments* args) {
     return;
   }
 
-  auto* icon_manager = g_browser_process->GetIconManager();
+  auto* icon_manager = AtomBrowserMainParts::Get()->GetIconManager();
   gfx::Image* icon =
       icon_manager->LookupIconFromFilepath(normalized_path, icon_size);
   if (icon) {
@@ -1168,7 +1181,7 @@ v8::Local<v8::Promise> App::GetGPUInfo(v8::Isolate* isolate,
 
   auto* const info_mgr = GPUInfoManager::GetInstance();
   if (info_type == "complete") {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_WIN) || defined(OS_MACOSX)
     info_mgr->FetchCompleteInfo(promise);
 #else
     info_mgr->FetchBasicInfo(promise);
@@ -1177,6 +1190,33 @@ v8::Local<v8::Promise> App::GetGPUInfo(v8::Isolate* isolate,
     info_mgr->FetchBasicInfo(promise);
   }
   return promise->GetHandle();
+}
+
+static void RemoveNoSandboxSwitch(base::CommandLine* command_line) {
+  if (command_line->HasSwitch(service_manager::switches::kNoSandbox)) {
+    const base::CommandLine::CharType* noSandboxArg =
+        FILE_PATH_LITERAL("--no-sandbox");
+    base::CommandLine::StringVector modified_command_line;
+    for (auto& arg : command_line->argv()) {
+      if (arg.compare(noSandboxArg) != 0) {
+        modified_command_line.push_back(arg);
+      }
+    }
+    command_line->InitFromArgv(modified_command_line);
+  }
+}
+
+void App::EnableSandbox(mate::Arguments* args) {
+  if (Browser::Get()->is_ready()) {
+    args->ThrowError(
+        "app.enableSandbox() can only be called "
+        "before app is ready");
+    return;
+  }
+
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  RemoveNoSandboxSwitch(command_line);
+  command_line->AppendSwitch(switches::kEnableSandbox);
 }
 
 void App::EnableMixedSandbox(mate::Arguments* args) {
@@ -1188,22 +1228,7 @@ void App::EnableMixedSandbox(mate::Arguments* args) {
   }
 
   auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(::switches::kNoSandbox)) {
-#if defined(OS_WIN)
-    const base::CommandLine::CharType* noSandboxArg = L"--no-sandbox";
-#else
-    const base::CommandLine::CharType* noSandboxArg = "--no-sandbox";
-#endif
-
-    // Remove the --no-sandbox switch
-    base::CommandLine::StringVector modified_command_line;
-    for (auto& arg : command_line->argv()) {
-      if (arg.compare(noSandboxArg) != 0) {
-        modified_command_line.push_back(arg);
-      }
-    }
-    command_line->InitFromArgv(modified_command_line);
-  }
+  RemoveNoSandboxSwitch(command_line);
   command_line->AppendSwitch(switches::kEnableMixedSandbox);
 }
 
@@ -1311,6 +1336,7 @@ void App::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("startAccessingSecurityScopedResource",
                  &App::StartAccessingSecurityScopedResource)
 #endif
+      .SetMethod("enableSandbox", &App::EnableSandbox)
       .SetMethod("enableMixedSandbox", &App::EnableMixedSandbox);
 }
 

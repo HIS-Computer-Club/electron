@@ -1,47 +1,12 @@
-diff --git a/chrome/browser/ui/libgtkui/app_indicator_icon.h b/chrome/browser/ui/libgtkui/app_indicator_icon.h
-index 7815fbb..f17a5c5 100644
---- a/chrome/browser/ui/libgtkui/app_indicator_icon.h
-+++ b/chrome/browser/ui/libgtkui/app_indicator_icon.h
-@@ -12,6 +12,7 @@
- #include "base/memory/weak_ptr.h"
- #include "base/nix/xdg_util.h"
- #include "chrome/browser/ui/libgtkui/gtk_signal.h"
-+#include "chrome/browser/ui/libgtkui/libgtkui_export.h"
- #include "ui/views/linux_ui/status_icon_linux.h"
- 
- typedef struct _AppIndicator AppIndicator;
-@@ -31,7 +32,7 @@ namespace libgtkui {
- class AppIndicatorIconMenu;
- 
- // Status icon implementation which uses libappindicator.
--class AppIndicatorIcon : public views::StatusIconLinux {
-+class LIBGTKUI_EXPORT AppIndicatorIcon : public views::StatusIconLinux {
-  public:
-   // The id uniquely identifies the new status icon from other chrome status
-   // icons.
-diff --git a/chrome/browser/ui/libgtkui/gtk_status_icon.h b/chrome/browser/ui/libgtkui/gtk_status_icon.h
-index e4e0da4..af02871 100644
---- a/chrome/browser/ui/libgtkui/gtk_status_icon.h
-+++ b/chrome/browser/ui/libgtkui/gtk_status_icon.h
-@@ -10,6 +10,7 @@
- #include "base/macros.h"
- #include "base/strings/string16.h"
- #include "chrome/browser/ui/libgtkui/gtk_signal.h"
-+#include "chrome/browser/ui/libgtkui/libgtkui_export.h"
- #include "ui/base/glib/glib_integers.h"
- #include "ui/base/glib/glib_signal.h"
- #include "ui/views/linux_ui/status_icon_linux.h"
-@@ -29,7 +30,7 @@ class AppIndicatorIconMenu;
- 
- // Status icon implementation which uses the system tray X11 spec (via
- // GtkStatusIcon).
--class Gtk2StatusIcon : public views::StatusIconLinux {
-+class LIBGTKUI_EXPORT Gtk2StatusIcon : public views::StatusIconLinux {
-  public:
-   Gtk2StatusIcon(const gfx::ImageSkia& image, const base::string16& tool_tip);
-   ~Gtk2StatusIcon() override;
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeremy Apthorp <nornagon@nornagon.net>
+Date: Thu, 20 Sep 2018 17:48:31 -0700
+Subject: libgtkui_export.patch
+
+Export libgtkui symbols for the GN component build.
+
 diff --git a/chrome/browser/ui/libgtkui/gtk_util.h b/chrome/browser/ui/libgtkui/gtk_util.h
-index 665ec57..4ccb088 100644
+index d9f245070249f5f153bd8fe11e0a5e718c7d3629..a0f033c3e3f7f3996897f5f969b2a209d7d5cf3f 100644
 --- a/chrome/browser/ui/libgtkui/gtk_util.h
 +++ b/chrome/browser/ui/libgtkui/gtk_util.h
 @@ -11,6 +11,7 @@
@@ -52,7 +17,7 @@ index 665ec57..4ccb088 100644
  
  namespace aura {
  class Window;
-@@ -51,10 +52,10 @@ SkColor NormalURLColor(SkColor foreground);
+@@ -55,10 +56,10 @@ SkColor NormalURLColor(SkColor foreground);
  // saturation than to look exactly like the foreground color.
  SkColor SelectedURLColor(SkColor foreground, SkColor background);
  
@@ -65,7 +30,7 @@ index 665ec57..4ccb088 100644
  
  guint GetGdkKeyCodeForAccelerator(const ui::Accelerator& accelerator);
  
-@@ -69,7 +70,7 @@ void TurnButtonBlue(GtkWidget* button);
+@@ -73,7 +74,7 @@ void TurnButtonBlue(GtkWidget* button);
  
  // Sets |dialog| as transient for |parent|, which will keep it on top and center
  // it above |parent|. Do nothing if |parent| is nullptr.
@@ -74,7 +39,7 @@ index 665ec57..4ccb088 100644
  
  // Gets the transient parent aura window for |dialog|.
  aura::Window* GetAuraTransientParent(GtkWidget* dialog);
-@@ -190,7 +190,7 @@ void RenderBackground(const gfx::Size& size,
+@@ -193,7 +194,7 @@ void RenderBackground(const gfx::Size& size,
  // Renders a background from the style context created by
  // GetStyleContextFromCss(|css_selector|) into a 24x24 bitmap and
  // returns the average color.
@@ -84,7 +49,7 @@ index 665ec57..4ccb088 100644
  // Renders the border from the style context created by
  // GetStyleContextFromCss(|css_selector|) into a 24x24 bitmap and
 diff --git a/chrome/browser/ui/libgtkui/skia_utils_gtk.h b/chrome/browser/ui/libgtkui/skia_utils_gtk.h
-index e05fbe9..3afca9a 100644
+index e05fbe9d8b2fe537a5eecbd3642dcc9eb848f3d7..3afca9a72ab69fed0144cfff8159aff5a480c4f5 100644
 --- a/chrome/browser/ui/libgtkui/skia_utils_gtk.h
 +++ b/chrome/browser/ui/libgtkui/skia_utils_gtk.h
 @@ -7,6 +7,7 @@
@@ -105,7 +70,7 @@ index e05fbe9..3afca9a 100644
  }  // namespace libgtkui
  
 diff --git a/chrome/browser/ui/libgtkui/unity_service.h b/chrome/browser/ui/libgtkui/unity_service.h
-index 8d67e14..95fbb27 100644
+index 8d67e1460837c7f8adb151adea131cc6440659a3..95fbb27b6a81e4d73d239e94f5105078a936b5af 100644
 --- a/chrome/browser/ui/libgtkui/unity_service.h
 +++ b/chrome/browser/ui/libgtkui/unity_service.h
 @@ -5,18 +5,20 @@

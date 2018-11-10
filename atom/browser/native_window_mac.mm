@@ -16,13 +16,13 @@
 #include "atom/browser/ui/cocoa/atom_preview_item.h"
 #include "atom/browser/ui/cocoa/atom_touch_bar.h"
 #include "atom/browser/ui/cocoa/root_view_mac.h"
+#include "atom/browser/ui/inspectable_web_contents.h"
+#include "atom/browser/ui/inspectable_web_contents_view.h"
 #include "atom/browser/window_list.h"
 #include "atom/common/options_switches.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/sys_string_conversions.h"
-#include "brightray/browser/inspectable_web_contents.h"
-#include "brightray/browser/inspectable_web_contents_view.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "native_mate/dictionary.h"
 #include "skia/ext/skia_utils_mac.h"
@@ -341,6 +341,9 @@ NativeWindowMac::NativeWindowMac(const mate::Dictionary& options,
   if (!useStandardWindow || transparent() || !has_frame()) {
     styleMask |= NSTexturedBackgroundWindowMask;
   }
+  if (resizable_) {
+    styleMask |= NSResizableWindowMask;
+  }
 
   // Create views::Widget and assign window_ with it.
   // TODO(zcbenz): Get rid of the window_ in future.
@@ -473,6 +476,7 @@ NativeWindowMac::NativeWindowMac(const mate::Dictionary& options,
   AddContentViewLayers();
 
   original_frame_ = [window_ frame];
+  original_level_ = [window_ level];
 }
 
 NativeWindowMac::~NativeWindowMac() {
@@ -584,13 +588,13 @@ bool NativeWindowMac::IsEnabled() {
 
 void NativeWindowMac::SetEnabled(bool enable) {
   if (enable) {
+    [window_ endSheet:[window_ attachedSheet]];
+  } else {
     [window_ beginSheet:window_
         completionHandler:^(NSModalResponse returnCode) {
           NSLog(@"modal enabled");
           return;
         }];
-  } else {
-    [window_ endSheet:[window_ attachedSheet]];
   }
 }
 
@@ -892,9 +896,11 @@ void NativeWindowMac::SetSimpleFullScreen(bool simple_fullscreen) {
   if (simple_fullscreen && !is_simple_fullscreen_) {
     is_simple_fullscreen_ = true;
 
-    // Take note of the current window size
-    if (IsNormal())
+    // Take note of the current window size and level
+    if (IsNormal()) {
       original_frame_ = [window_ frame];
+      original_level_ = [window_ level];
+    }
 
     simple_fullscreen_options_ = [NSApp currentSystemPresentationOptions];
     simple_fullscreen_mask_ = [window styleMask];
@@ -910,6 +916,13 @@ void NativeWindowMac::SetSimpleFullScreen(bool simple_fullscreen) {
     was_movable_ = IsMovable();
 
     NSRect fullscreenFrame = [window.screen frame];
+
+    // If our app has dock hidden, set the window level higher so another app's
+    // menu bar doesn't appear on top of our fullscreen app.
+    if ([[NSRunningApplication currentApplication] activationPolicy] !=
+        NSApplicationActivationPolicyRegular) {
+      window.level = NSPopUpMenuWindowLevel;
+    }
 
     if (!fullscreen_window_title()) {
       // Hide the titlebar
@@ -951,6 +964,7 @@ void NativeWindowMac::SetSimpleFullScreen(bool simple_fullscreen) {
         setHidden:window_button_hidden];
 
     [window setFrame:original_frame_ display:YES animate:YES];
+    window.level = original_level_;
 
     [NSApp setPresentationOptions:simple_fullscreen_options_];
 
@@ -999,15 +1013,7 @@ bool NativeWindowMac::IsKiosk() {
 void NativeWindowMac::SetBackgroundColor(SkColor color) {
   base::ScopedCFTypeRef<CGColorRef> cgcolor(
       skia::CGColorCreateFromSkColor(color));
-  // views::Widget adds a layer for the content view.
-  auto* bridge = views::NativeWidgetMac::GetBridgeForNativeWindow(window_);
-  NSView* compositor_superview =
-      static_cast<ui::AcceleratedWidgetMacNSView*>(bridge)
-          ->AcceleratedWidgetGetNSView();
-  [[compositor_superview layer] setBackgroundColor:cgcolor];
-  // When using WebContents as content view, the contentView also has layer.
-  if ([[window_ contentView] wantsLayer])
-    [[[window_ contentView] layer] setBackgroundColor:cgcolor];
+  [[[window_ contentView] layer] setBackgroundColor:cgcolor];
 }
 
 void NativeWindowMac::SetHasShadow(bool has_shadow) {
@@ -1096,6 +1102,11 @@ gfx::NativeWindow NativeWindowMac::GetNativeWindow() const {
 
 gfx::AcceleratedWidget NativeWindowMac::GetAcceleratedWidget() const {
   return gfx::kNullAcceleratedWidget;
+}
+
+std::tuple<void*, int> NativeWindowMac::GetNativeWindowHandlePointer() const {
+  NSView* view = [window_ contentView];
+  return std::make_tuple(static_cast<void*>(view), sizeof(view));
 }
 
 void NativeWindowMac::SetProgressBar(double progress,
@@ -1223,14 +1234,12 @@ void NativeWindowMac::SetVibrancy(const std::string& type) {
 
       [vibrant_view removeFromSuperview];
       [window_ setVibrantView:nil];
-      ui::GpuSwitchingManager::SetTransparent(transparent());
 
       return;
     }
 
     background_color_before_vibrancy_.reset([[window_ backgroundColor] retain]);
     transparency_before_vibrancy_ = [window_ titlebarAppearsTransparent];
-    ui::GpuSwitchingManager::SetTransparent(true);
 
     if (title_bar_style_ != NORMAL) {
       [window_ setTitlebarAppearsTransparent:YES];
@@ -1354,9 +1363,8 @@ views::View* NativeWindowMac::GetContentsView() {
 
 void NativeWindowMac::AddContentViewLayers() {
   // Make sure the bottom corner is rounded for non-modal windows:
-  // http://crbug.com/396264. But do not enable it on OS X 10.9 for transparent
-  // window, otherwise a semi-transparent frame would show.
-  if (!(transparent() && base::mac::IsOS10_9()) && !is_modal()) {
+  // http://crbug.com/396264.
+  if (!is_modal()) {
     // For normal window, we need to explicitly set layer for contentView to
     // make setBackgroundColor work correctly.
     // There is no need to do so for frameless window, and doing so would make
@@ -1393,14 +1401,8 @@ void NativeWindowMac::AddContentViewLayers() {
           [[CustomWindowButtonView alloc] initWithFrame:NSZeroRect]);
       [[window_ contentView] addSubview:buttons_view_];
     } else {
-      if (title_bar_style_ != NORMAL) {
-        if (base::mac::IsOS10_9()) {
-          ShowWindowButton(NSWindowZoomButton);
-          ShowWindowButton(NSWindowMiniaturizeButton);
-          ShowWindowButton(NSWindowCloseButton);
-        }
+      if (title_bar_style_ != NORMAL)
         return;
-      }
 
       // Hide the window buttons.
       [[window_ standardWindowButton:NSWindowZoomButton] setHidden:YES];

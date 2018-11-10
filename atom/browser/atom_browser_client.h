@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "brightray/browser/browser_client.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "net/ssl/client_cert_identity.h"
 
@@ -27,10 +27,15 @@ class SSLCertRequestInfo;
 namespace atom {
 
 class AtomResourceDispatcherHostDelegate;
+class NotificationPresenter;
+class PlatformNotificationService;
 
-class AtomBrowserClient : public brightray::BrowserClient,
+class AtomBrowserClient : public content::ContentBrowserClient,
                           public content::RenderProcessHostObserver {
  public:
+  static AtomBrowserClient* Get();
+  static void SetApplicationLocale(const std::string& locale);
+
   AtomBrowserClient();
   ~AtomBrowserClient() override;
 
@@ -47,11 +52,19 @@ class AtomBrowserClient : public brightray::BrowserClient,
   static void SetCustomServiceWorkerSchemes(
       const std::vector<std::string>& schemes);
 
+  NotificationPresenter* GetNotificationPresenter();
+
+  void WebNotificationAllowed(int render_process_id,
+                              const base::Callback<void(bool, bool)>& callback);
+
+  // content::NavigatorDelegate
   std::vector<std::unique_ptr<content::NavigationThrottle>>
   CreateThrottlesForNavigation(content::NavigationHandle* handle) override;
 
- protected:
   // content::ContentBrowserClient:
+  std::string GetApplicationLocale() override;
+
+ protected:
   void RenderProcessWillLaunch(
       content::RenderProcessHost* host,
       service_manager::mojom::ServiceRequest* service_request) override;
@@ -69,9 +82,6 @@ class AtomBrowserClient : public brightray::BrowserClient,
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   void DidCreatePpapiPlugin(content::BrowserPpapiHost* browser_host) override;
-  void GetGeolocationRequestContext(
-      base::OnceCallback<void(scoped_refptr<net::URLRequestContextGetter>)>
-          callback) override;
   std::string GetGeolocationApiKey() override;
   content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
   void AllowCertificateError(
@@ -106,26 +116,36 @@ class AtomBrowserClient : public brightray::BrowserClient,
                        bool opener_suppressed,
                        bool* no_javascript_access) override;
   void GetAdditionalAllowedSchemesForFileSystem(
-      std::vector<std::string>* schemes) override;
+      std::vector<std::string>* additional_schemes) override;
+  void GetAdditionalWebUISchemes(
+      std::vector<std::string>* additional_schemes) override;
   void SiteInstanceDeleting(content::SiteInstance* site_instance) override;
   std::unique_ptr<net::ClientCertStore> CreateClientCertStore(
       content::ResourceContext* resource_context) override;
   std::unique_ptr<device::LocationProvider> OverrideSystemLocationProvider()
       override;
-
-  // brightray::BrowserClient:
-  brightray::BrowserMainParts* OverrideCreateBrowserMainParts(
+  network::mojom::NetworkContextPtr CreateNetworkContext(
+      content::BrowserContext* browser_context,
+      bool in_memory,
+      const base::FilePath& relative_partition_path) override;
+  void RegisterOutOfProcessServices(OutOfProcessServiceMap* services) override;
+  std::unique_ptr<base::Value> GetServiceManifestOverlay(
+      base::StringPiece name) override;
+  net::NetLog* GetNetLog() override;
+  content::MediaObserver* GetMediaObserver() override;
+  content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  content::PlatformNotificationService* GetPlatformNotificationService()
+      override;
+  content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams&) override;
-  void WebNotificationAllowed(
-      int render_process_id,
-      const base::Callback<void(bool, bool)>& callback) override;
+  base::FilePath GetDefaultDownloadDirectory() override;
 
   // content::RenderProcessHostObserver:
   void RenderProcessHostDestroyed(content::RenderProcessHost* host) override;
   void RenderProcessReady(content::RenderProcessHost* host) override;
-  void RenderProcessExited(content::RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
+  void RenderProcessExited(
+      content::RenderProcessHost* host,
+      const content::ChildProcessTerminationInfo& info) override;
   bool HandleExternalProtocol(
       const GURL& url,
       content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
@@ -164,6 +184,9 @@ class AtomBrowserClient : public brightray::BrowserClient,
 
   std::unique_ptr<AtomResourceDispatcherHostDelegate>
       resource_dispatcher_host_delegate_;
+
+  std::unique_ptr<PlatformNotificationService> notification_service_;
+  std::unique_ptr<NotificationPresenter> notification_presenter_;
 
   Delegate* delegate_ = nullptr;
 

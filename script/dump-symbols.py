@@ -6,7 +6,7 @@ import sys
 
 from lib.config import PLATFORM, enable_verbose_mode, is_verbose_mode
 from lib.util import get_electron_branding, execute, rm_rf, get_out_dir, \
-                     GN_SRC_DIR
+                     SRC_DIR
 
 ELECTRON_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 SOURCE_ROOT = os.path.abspath(os.path.dirname(ELECTRON_ROOT))
@@ -51,7 +51,7 @@ def main():
       args += ['-v']
     #Make sure msdia140.dll is in the path (needed for dump_syms.exe)
     env = os.environ.copy()
-    msdia140_dll_path =  os.path.join(GN_SRC_DIR, 'third_party', 'llvm-build',
+    msdia140_dll_path =  os.path.join(SRC_DIR, 'third_party', 'llvm-build',
                                       'Release+Asserts', 'bin')
     env['PATH'] = os.path.pathsep.join(
         [env.get('PATH', '')] + [msdia140_dll_path])
@@ -78,8 +78,7 @@ def generate_posix_symbols(binary, source_root, build_dir, destination):
 def parse_args():
   parser = argparse.ArgumentParser(description='Create breakpad symbols')
   parser.add_argument('-b', '--build-dir',
-                      help='Path to an Electron build folder. \
-                          Relative to the --source-root.',
+                      help='Path to an Electron build folder.',
                       default=RELEASE_PATH,
                       required=False)
   parser.add_argument('-d', '--destination',

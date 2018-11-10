@@ -161,7 +161,7 @@ app.on('ready', function () {
   // For session's download test, listen 'will-download' event in browser, and
   // reply the result to renderer for verifying
   const downloadFilePath = path.join(__dirname, '..', 'fixtures', 'mock.pdf')
-  ipcMain.on('set-download-option', function (event, needCancel, preventDefault, filePath = downloadFilePath) {
+  ipcMain.on('set-download-option', function (event, needCancel, preventDefault, filePath = downloadFilePath, dialogOptions = {}) {
     window.webContents.session.once('will-download', function (e, item) {
       window.webContents.send('download-created',
         item.getState(),
@@ -187,6 +187,7 @@ app.on('ready', function () {
           item.resume()
         } else {
           item.setSavePath(filePath)
+          item.setSaveDialogOptions(dialogOptions)
         }
         item.on('done', function (e, state) {
           window.webContents.send('download-done',
@@ -198,6 +199,7 @@ app.on('ready', function () {
             item.getContentDisposition(),
             item.getFilename(),
             item.getSavePath(),
+            item.getSaveDialogOptions(),
             item.getURLChain(),
             item.getLastModifiedTime(),
             item.getETag())
@@ -212,6 +214,7 @@ app.on('ready', function () {
     webContents.fromId(id).once('before-input-event', (event, input) => {
       if (key === input.key) event.preventDefault()
     })
+    event.returnValue = null
   })
 
   ipcMain.on('executeJavaScript', function (event, code, hasCallback) {
@@ -237,6 +240,24 @@ app.on('ready', function () {
 
     if (!hasCallback) {
       event.returnValue = 'success'
+    }
+  })
+})
+
+ipcMain.on('handle-next-remote-require', function (event, modulesMap = {}) {
+  event.sender.once('remote-require', (event, moduleName) => {
+    event.preventDefault()
+    if (modulesMap.hasOwnProperty(moduleName)) {
+      event.returnValue = modulesMap[moduleName]
+    }
+  })
+})
+
+ipcMain.on('handle-next-remote-get-global', function (event, globalsMap = {}) {
+  event.sender.once('remote-get-global', (event, globalName) => {
+    event.preventDefault()
+    if (globalsMap.hasOwnProperty(globalName)) {
+      event.returnValue = globalsMap[globalName]
     }
   })
 })
@@ -331,26 +352,21 @@ ipcMain.on('disable-preload-on-next-will-attach-webview', (event, id) => {
 
 ipcMain.on('try-emit-web-contents-event', (event, id, eventName) => {
   const consoleWarn = console.warn
-  let warningMessage = null
   const contents = webContents.fromId(id)
   const listenerCountBefore = contents.listenerCount(eventName)
 
-  try {
-    console.warn = (message) => {
-      warningMessage = message
-    }
-    contents.emit(eventName, { sender: contents })
-  } finally {
+  console.warn = (warningMessage) => {
     console.warn = consoleWarn
+
+    const listenerCountAfter = contents.listenerCount(eventName)
+    event.returnValue = {
+      warningMessage,
+      listenerCountBefore,
+      listenerCountAfter
+    }
   }
 
-  const listenerCountAfter = contents.listenerCount(eventName)
-
-  event.returnValue = {
-    warningMessage,
-    listenerCountBefore,
-    listenerCountAfter
-  }
+  contents.emit(eventName, { sender: contents })
 })
 
 ipcMain.on('handle-uncaught-exception', (event, message) => {

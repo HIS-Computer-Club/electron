@@ -262,6 +262,10 @@ void TopLevelWindow::OnWindowLeaveHtmlFullScreen() {
   Emit("leave-html-full-screen");
 }
 
+void TopLevelWindow::OnWindowAlwaysOnTopChanged() {
+  Emit("always-on-top-changed", IsAlwaysOnTop());
+}
+
 void TopLevelWindow::OnExecuteWindowsCommand(const std::string& command_name) {
   Emit("app-command", command_name);
 }
@@ -399,8 +403,10 @@ gfx::Rect TopLevelWindow::GetContentBounds() {
 
 void TopLevelWindow::SetSize(int width, int height, mate::Arguments* args) {
   bool animate = false;
+  gfx::Size size = window_->GetMinimumSize();
+  size.SetToMax(gfx::Size(width, height));
   args->GetNext(&animate);
-  window_->SetSize(gfx::Size(width, height), animate);
+  window_->SetSize(size, animate);
 }
 
 std::vector<int> TopLevelWindow::GetSize() {
@@ -685,8 +691,11 @@ void TopLevelWindow::SetBrowserView(v8::Local<v8::Value> value) {
 }
 
 v8::Local<v8::Value> TopLevelWindow::GetNativeWindowHandle() {
-  gfx::AcceleratedWidget handle = window_->GetAcceleratedWidget();
-  return ToBuffer(isolate(), static_cast<void*>(&handle), sizeof(handle));
+  // TODO(MarshallOfSound): Replace once
+  // https://chromium-review.googlesource.com/c/chromium/src/+/1253094/ has
+  // landed
+  auto handle = window_->GetNativeWindowHandlePointer();
+  return ToBuffer(isolate(), std::get<0>(handle), std::get<1>(handle));
 }
 
 void TopLevelWindow::SetProgressBar(double progress, mate::Arguments* args) {

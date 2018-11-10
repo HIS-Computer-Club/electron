@@ -1,5 +1,11 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Cheng Zhao <zcbenz@gmail.com>
+Date: Thu, 4 Oct 2018 14:57:02 -0700
+Subject: accelerator.patch
+
+
 diff --git a/ui/base/accelerators/accelerator.cc b/ui/base/accelerators/accelerator.cc
-index a6756c2..5352958 100644
+index 7e55ef366ac8320f730cdcb268453b1fa2710887..9b000ab1dfb85c097e879eacbfe69dc052960766 100644
 --- a/ui/base/accelerators/accelerator.cc
 +++ b/ui/base/accelerators/accelerator.cc
 @@ -11,6 +11,7 @@
@@ -20,14 +26,12 @@ index a6756c2..5352958 100644
  
  namespace ui {
  
-@@ -145,7 +144,17 @@ base::string16 Accelerator::GetShortcutText() const {
+@@ -139,7 +138,15 @@ base::string16 Accelerator::GetShortcutText() const {
    shortcut = KeyCodeToName(key_code_);
  #endif
  
 +  unsigned int flags = 0;
    if (shortcut.empty()) {
-+    if (IsShiftDown())
-+      flags = ui::EF_SHIFT_DOWN;
 +    const uint16_t c = DomCodeToUsLayoutCharacter(
 +        UsLayoutKeyboardCodeToDomCode(key_code_), flags);
 +    if (c != 0) {
@@ -38,7 +42,7 @@ index a6756c2..5352958 100644
  #if defined(OS_WIN)
      // Our fallback is to try translate the key code to a regular character
      // unless it is one of digits (VK_0 to VK_9). Some keyboard
-@@ -154,17 +163,20 @@ base::string16 Accelerator::GetShortcutText() const {
+@@ -148,18 +155,14 @@ base::string16 Accelerator::GetShortcutText() const {
      // accent' for '0'). For display in the menu (e.g. Ctrl-0 for the
      // default zoom level), we leave VK_[0-9] alone without translation.
      wchar_t key;
@@ -56,28 +60,14 @@ index a6756c2..5352958 100644
 -          static_cast<base::string16::value_type>(base::ToUpperASCII(c));
 +      shortcut = key;
 +    }
-+#endif
+ #endif
 +    if (key_code_ > VKEY_F1 && key_code_ <= VKEY_F24)
 +      shortcut = base::UTF8ToUTF16(
 +          base::StringPrintf("F%d", key_code_ - VKEY_F1 + 1));
-+  } else if (IsShiftDown()) {
-+#if defined(OS_MACOSX)
-+    const base::char16 kShiftSymbol[] = {0x21e7, 0};
-+    shortcut = kShiftSymbol;
-+#else
-+    shortcut = l10n_util::GetStringFUTF16(IDS_APP_SHIFT_MODIFIER, shortcut);
- #endif
    }
  
-@@ -221,15 +233,12 @@ base::string16 Accelerator::GetShortcutText() const {
- 
- base::string16 Accelerator::ApplyLongFormModifiers(
-     base::string16 shortcut) const {
--  if (IsShiftDown())
--    shortcut = l10n_util::GetStringFUTF16(IDS_APP_SHIFT_MODIFIER, shortcut);
--
-   // Note that we use 'else-if' in order to avoid using Ctrl+Alt as a shortcut.
-   // See http://blogs.msdn.com/oldnewthing/archive/2004/03/29/101121.aspx for
+   // Checking whether the character used for the accelerator is alphanumeric.
+@@ -223,7 +226,7 @@ base::string16 Accelerator::ApplyLongFormModifiers(
    // more information.
    if (IsCtrlDown())
      shortcut = l10n_util::GetStringFUTF16(IDS_APP_CONTROL_MODIFIER, shortcut);
@@ -86,18 +76,3 @@ index a6756c2..5352958 100644
      shortcut = l10n_util::GetStringFUTF16(IDS_APP_ALT_MODIFIER, shortcut);
  
    if (IsCmdDown()) {
-@@ -249,14 +258,12 @@ base::string16 Accelerator::ApplyShortFormModifiers(
-     base::string16 shortcut) const {
-   const base::char16 kCommandSymbol[] = {0x2318, 0};
-   const base::char16 kCtrlSymbol[] = {0x2303, 0};
--  const base::char16 kShiftSymbol[] = {0x21e7, 0};
-   const base::char16 kOptionSymbol[] = {0x2325, 0};
-   const base::char16 kNoSymbol[] = {0};
- 
-   std::vector<base::string16> parts;
-   parts.push_back(base::string16(IsCtrlDown() ? kCtrlSymbol : kNoSymbol));
-   parts.push_back(base::string16(IsAltDown() ? kOptionSymbol : kNoSymbol));
--  parts.push_back(base::string16(IsShiftDown() ? kShiftSymbol : kNoSymbol));
-   parts.push_back(base::string16(IsCmdDown() ? kCommandSymbol : kNoSymbol));
-   parts.push_back(shortcut);
-   return base::StrCat(parts);

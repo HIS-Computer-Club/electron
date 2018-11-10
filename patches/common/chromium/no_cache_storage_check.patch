@@ -1,11 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Cheng Zhao <zcbenz@gmail.com>
+Date: Thu, 20 Sep 2018 17:48:16 -0700
+Subject: no_cache_storage_check.patch
+
+Do not check for unique origin in CacheStorage, in Electron we may have
+scripts running without an origin.
+
 diff --git a/content/browser/cache_storage/cache_storage.cc b/content/browser/cache_storage/cache_storage.cc
-index ce6a21b..10a3b18 100644
+index d91b54a4d2a15f4d48f6e82488e0c27c68c5abdb..7f946a5a04c97635f783aeecebc13fc20b26631e 100644
 --- a/content/browser/cache_storage/cache_storage.cc
 +++ b/content/browser/cache_storage/cache_storage.cc
-@@ -129,7 +129,7 @@ class CacheStorage::CacheLoader {
-         blob_context_(blob_context),
+@@ -132,7 +132,7 @@ class CacheStorage::CacheLoader {
          cache_storage_(cache_storage),
-         origin_(origin) {
+         origin_(origin),
+         owner_(owner) {
 -    DCHECK(!origin_.unique());
 +    // DCHECK(!origin_.unique());
    }

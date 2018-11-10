@@ -201,8 +201,8 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
   * `enableLargerThanScreen` Boolean (optional) - Enable the window to be resized larger
     than screen. Default is `false`.
   * `backgroundColor` String (optional) - Window's background color as a hexadecimal value,
-    like `#66CD00` or `#FFF` or `#80FFFFFF` (alpha is supported). Default is
-    `#FFF` (white). If `transparent` is set to `true`, only values with transparent (`#00-------`) or opaque (`#FF-----`) alpha values are respected.
+    like `#66CD00` or `#FFF` or `#80FFFFFF` (alpha is supported if
+    `transparent` is set to `true`). Default is `#FFF` (white).
   * `hasShadow` Boolean (optional) - Whether window should have a shadow. This is only
     implemented on macOS. Default is `true`.
   * `opacity` Number (optional) - Set the initial opacity of the window, between 0.0 (fully
@@ -270,6 +270,8 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
       are more limited. Read more about the option [here](sandbox-option.md).
       **Note:** This option is currently experimental and may change or be
       removed in future Electron releases.
+    * `enableRemoteModule` Boolean (optional) - Whether to enable the [`remote`](remote.md) module.
+      Default is `true`.
     * `session` [Session](session.md#class-session) (optional) - Sets the session used by the
       page. Instead of passing the Session object directly, you can also choose to
       use the `partition` option instead, which accepts a partition string. When
@@ -349,7 +351,8 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
       Console tab. **Note:** This option is currently experimental and may
       change or be removed in future Electron releases.
     * `nativeWindowOpen` Boolean (optional) - Whether to use native
-      `window.open()`. Defaults to `false`. **Note:** This option is currently
+      `window.open()`. Defaults to `false`. Child windows will always have node
+      integration disabled. **Note:** This option is currently
       experimental.
     * `webviewTag` Boolean (optional) - Whether to enable the [`<webview>` tag](webview-tag.md).
       Defaults to the value of the `nodeIntegration` option. **Note:** The
@@ -541,6 +544,15 @@ Emitted when the window enters a full-screen state triggered by HTML API.
 #### Event: 'leave-html-full-screen'
 
 Emitted when the window leaves a full-screen state triggered by HTML API.
+
+#### Event: 'always-on-top-changed' _macOS_
+
+Returns:
+
+* `event` Event
+* `isAlwaysOnTop` Boolean
+
+Emitted when the window is set or unset to show always on top of other windows.
 
 #### Event: 'app-command' _Windows_
 
@@ -855,6 +867,15 @@ height areas you have within the overall content view.
 Calling this function with a value of `0` will remove any previously set aspect
 ratios.
 
+#### `win.setBackgroundColor(backgroundColor)`
+
+* `backgroundColor` String - Window's background color as a hexadecimal value,
+  like `#66CD00` or `#FFF` or `#80FFFFFF` (alpha is supported if `transparent`
+  is `true`). Default is `#FFF` (white).
+
+Sets the background color of the window. See [Setting
+`backgroundColor`](#setting-backgroundcolor).
+
 #### `win.previewFile(path[, displayName])` _macOS_
 
 * `path` String - The absolute path to the file to preview with QuickLook. This
@@ -911,7 +932,7 @@ Disable or enable the window.
 * `height` Integer
 * `animate` Boolean (optional) _macOS_
 
-Resizes the window to `width` and `height`.
+Resizes the window to `width` and `height`. If `width` or `height` are below any set minimum size constraints the window will snap to its minimum size.
 
 #### `win.getSize()`
 

@@ -9,8 +9,8 @@
 #include <string>
 
 #include "atom/common/api/locker.h"
+#include "atom/common/application_info.h"
 #include "atom/common/atom_version.h"
-#include "atom/common/chrome_version.h"
 #include "atom/common/heap_snapshot.h"
 #include "atom/common/native_mate_converters/file_path_converter.h"
 #include "atom/common/native_mate_converters/string16_converter.h"
@@ -20,7 +20,7 @@
 #include "base/process/process_metrics_iocounters.h"
 #include "base/sys_info.h"
 #include "base/threading/thread_restrictions.h"
-#include "brightray/common/application_info.h"
+#include "chrome/common/chrome_version.h"
 #include "native_mate/dictionary.h"
 
 namespace atom {
@@ -66,25 +66,24 @@ void AtomBindings::BindTo(v8::Isolate* isolate, v8::Local<v8::Object> process) {
   dict.SetMethod("getIOCounters", &GetIOCounters);
   dict.SetMethod("takeHeapSnapshot", &TakeHeapSnapshot);
 #if defined(OS_POSIX)
-  dict.SetMethod("setFdLimit", &base::SetFdLimit);
+  dict.SetMethod("setFdLimit", &base::IncreaseFdLimitTo);
 #endif
   dict.SetMethod("activateUvLoop", base::Bind(&AtomBindings::ActivateUVLoop,
                                               base::Unretained(this)));
 
 #if defined(MAS_BUILD)
-  dict.Set("mas", true);
+  dict.SetReadOnly("mas", true);
 #endif
 
 #if defined(OS_WIN)
-  if (brightray::IsRunningInDesktopBridge())
-    dict.Set("windowsStore", true);
+  if (IsRunningInDesktopBridge())
+    dict.SetReadOnly("windowsStore", true);
 #endif
 
   mate::Dictionary versions;
   if (dict.Get("versions", &versions)) {
-    // TODO(kevinsawicki): Make read-only in 2.0 to match node
-    versions.Set(ATOM_PROJECT_NAME, ATOM_VERSION_STRING);
-    versions.Set("chrome", CHROME_VERSION_STRING);
+    versions.SetReadOnly(ATOM_PROJECT_NAME, ATOM_VERSION_STRING);
+    versions.SetReadOnly("chrome", CHROME_VERSION_STRING);
   }
 }
 

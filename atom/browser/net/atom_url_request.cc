@@ -73,7 +73,7 @@ scoped_refptr<AtomURLRequest> AtomURLRequest::Create(
   if (!browser_context || url.empty() || !delegate) {
     return nullptr;
   }
-  scoped_refptr<brightray::URLRequestContextGetter> request_context_getter(
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter(
       browser_context->GetRequestContext());
   DCHECK(request_context_getter);
   scoped_refptr<AtomURLRequest> atom_url_request(new AtomURLRequest(delegate));
@@ -267,7 +267,8 @@ void AtomURLRequest::DoCancel() {
 void AtomURLRequest::DoFollowRedirect() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (request_ && request_->is_redirecting() && redirect_policy_ == "manual") {
-    request_->FollowDeferredRedirect();
+    request_->FollowDeferredRedirect(
+        base::nullopt /* modified_request_headers */);
   }
 }
 

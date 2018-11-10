@@ -6,7 +6,7 @@ const os = require('os')
 const path = require('path')
 const ChildProcess = require('child_process')
 const { remote } = require('electron')
-const { netLog } = remote
+const { session } = remote
 const appPath = path.join(__dirname, 'fixtures', 'api', 'net-log')
 const dumpFile = path.join(os.tmpdir(), 'net_log.json')
 const dumpFileDynamic = path.join(os.tmpdir(), 'net_log_dynamic.json')
@@ -14,6 +14,7 @@ const dumpFileDynamic = path.join(os.tmpdir(), 'net_log_dynamic.json')
 const { expect } = chai
 chai.use(dirtyChai)
 const isCI = remote.getGlobal('isCi')
+const netLog = session.fromPartition('net-log').netLog
 
 describe('netLog module', () => {
   let server
@@ -48,8 +49,12 @@ describe('netLog module', () => {
 
   afterEach(() => {
     try {
-      fs.unlinkSync(dumpFile)
-      fs.unlinkSync(dumpFileDynamic)
+      if (fs.existsSync(dumpFile)) {
+        fs.unlinkSync(dumpFile)
+      }
+      if (fs.existsSync(dumpFileDynamic)) {
+        fs.unlinkSync(dumpFileDynamic)
+      }
     } catch (e) {
       // Ignore error
     }
@@ -89,8 +94,6 @@ describe('netLog module', () => {
     })
   })
 
-  // The following tests are skipped on Linux CI
-
   it('should begin and end logging automatically when --log-net-log is passed', done => {
     if (isCI && process.platform === 'linux') {
       done()
@@ -98,9 +101,10 @@ describe('netLog module', () => {
     }
 
     const appProcess = ChildProcess.spawn(remote.process.execPath,
-      [appPath, `--log-net-log=${dumpFile}`], {
+      [appPath], {
         env: {
-          TEST_REQUEST_URL: server.url
+          TEST_REQUEST_URL: server.url,
+          TEST_DUMP_FILE: dumpFile
         }
       })
 
@@ -110,6 +114,7 @@ describe('netLog module', () => {
     })
   })
 
+  // FIXME(deepak1556): Ch69 follow up.
   it('should begin and end logging automtically when --log-net-log is passed, and behave correctly when .startLogging() and .stopLogging() is called', done => {
     if (isCI && process.platform === 'linux') {
       done()
@@ -117,17 +122,14 @@ describe('netLog module', () => {
     }
 
     const appProcess = ChildProcess.spawn(remote.process.execPath,
-      [appPath, `--log-net-log=${dumpFile}`], {
+      [appPath], {
         env: {
           TEST_REQUEST_URL: server.url,
-          TEST_DUMP_FILE: dumpFileDynamic,
+          TEST_DUMP_FILE: dumpFile,
+          TEST_DUMP_FILE_DYNAMIC: dumpFileDynamic,
           TEST_MANUAL_STOP: true
         }
       })
-
-    appProcess.stdout.on('data', data => {
-      console.log(data.toString())
-    })
 
     appProcess.once('exit', () => {
       expect(fs.existsSync(dumpFile)).to.be.true()
@@ -146,11 +148,11 @@ describe('netLog module', () => {
       [appPath], {
         env: {
           TEST_REQUEST_URL: server.url,
-          TEST_DUMP_FILE: dumpFileDynamic
+          TEST_DUMP_FILE_DYNAMIC: dumpFileDynamic
         }
       })
 
-    appProcess.once('exit', () => {
+    appProcess.once('close', () => {
       expect(fs.existsSync(dumpFileDynamic)).to.be.true()
       done()
     })

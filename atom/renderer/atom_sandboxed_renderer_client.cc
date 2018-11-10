@@ -6,6 +6,7 @@
 
 #include "atom/common/api/api_messages.h"
 #include "atom/common/api/atom_bindings.h"
+#include "atom/common/application_info.h"
 #include "atom/common/native_mate_converters/string16_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
 #include "atom/common/node_bindings.h"
@@ -17,8 +18,6 @@
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
-#include "brightray/common/application_info.h"
-#include "chrome/renderer/printing/print_web_view_helper.h"
 #include "content/public/renderer/render_frame.h"
 #include "native_mate/dictionary.h"
 #include "third_party/blink/public/web/blink.h"
@@ -83,7 +82,7 @@ v8::Local<v8::Value> GetBinding(v8::Isolate* isolate,
 
 base::FilePath::StringType GetExecPath() {
   base::FilePath path;
-  PathService::Get(base::FILE_EXE, &path);
+  base::PathService::Get(base::FILE_EXE, &path);
   return path.value();
 }
 
@@ -103,6 +102,7 @@ class AtomSandboxedRenderFrameObserver : public AtomRenderFrameObserver {
 
  protected:
   void EmitIPCEvent(blink::WebLocalFrame* frame,
+                    bool internal,
                     const std::string& channel,
                     const base::ListValue& args,
                     int32_t sender_id) override {
@@ -117,7 +117,7 @@ class AtomSandboxedRenderFrameObserver : public AtomRenderFrameObserver {
                                    mate::ConvertToV8(isolate, args),
                                    mate::ConvertToV8(isolate, sender_id)};
     renderer_client_->InvokeIpcCallback(
-        context, "onMessage",
+        context, internal ? "onInternalMessage" : "onMessage",
         std::vector<v8::Local<v8::Value>>(argv, argv + node::arraysize(argv)));
   }
 
@@ -158,18 +158,18 @@ void AtomSandboxedRendererClient::InitializeBindings(
 
   process.Set("argv", base::CommandLine::ForCurrentProcess()->argv());
   process.Set("execPath", GetExecPath());
-  process.Set("pid", base::GetCurrentProcId());
+  process.SetReadOnly("pid", base::GetCurrentProcId());
   process.Set("resourcesPath", NodeBindings::GetHelperResourcesPath());
-  process.Set("sandboxed", true);
-  process.Set("type", "renderer");
+  process.SetReadOnly("sandboxed", true);
+  process.SetReadOnly("type", "renderer");
 
 #if defined(MAS_BUILD)
-  process.Set("mas", true);
+  process.SetReadOnly("mas", true);
 #endif
 
 #if defined(OS_WIN)
-  if (brightray::IsRunningInDesktopBridge())
-    process.Set("windowsStore", true);
+  if (IsRunningInDesktopBridge())
+    process.SetReadOnly("windowsStore", true);
 #endif
 
   // Pass in CLI flags needed to setup the renderer

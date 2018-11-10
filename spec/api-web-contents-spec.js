@@ -1,6 +1,7 @@
 'use strict'
 
 const assert = require('assert')
+const ChildProcess = require('child_process')
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
@@ -9,6 +10,7 @@ const { emittedOnce } = require('./events-helpers')
 const chai = require('chai')
 const dirtyChai = require('dirty-chai')
 
+const features = process.atomBinding('features')
 const { ipcRenderer, remote, clipboard } = require('electron')
 const { BrowserWindow, webContents, ipcMain, session } = remote
 const { expect } = chai
@@ -159,17 +161,16 @@ describe('webContents module', () => {
 
   describe('before-input-event event', () => {
     it('can prevent document keyboard events', (done) => {
-      w.loadFile(path.join(fixtures, 'pages', 'key-events.html'))
+      ipcMain.once('keydown', (event, key) => {
+        assert.strictEqual(key, 'b')
+        done()
+      })
       w.webContents.once('did-finish-load', () => {
-        ipcMain.once('keydown', (event, key) => {
-          assert.strictEqual(key, 'b')
-          done()
-        })
-
-        ipcRenderer.send('prevent-next-input-event', 'a', w.webContents.id)
+        ipcRenderer.sendSync('prevent-next-input-event', 'a', w.webContents.id)
         w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'a' })
         w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'b' })
       })
+      w.loadFile(path.join(fixtures, 'pages', 'key-events.html'))
     })
 
     it('has the correct properties', (done) => {
@@ -314,8 +315,8 @@ describe('webContents module', () => {
 
   describe('sendInputEvent(event)', () => {
     beforeEach((done) => {
-      w.loadFile(path.join(fixtures, 'pages', 'key-events.html'))
       w.webContents.once('did-finish-load', () => done())
+      w.loadFile(path.join(fixtures, 'pages', 'key-events.html'))
     })
 
     it('can send keydown events', (done) => {
@@ -698,6 +699,16 @@ describe('webContents module', () => {
     })
   })
 
+  describe('create()', () => {
+    it('does not crash on exit', async () => {
+      const appPath = path.join(__dirname, 'fixtures', 'api', 'leak-exit-webcontents.js')
+      const electronPath = remote.getGlobal('process').execPath
+      const appProcess = ChildProcess.spawn(electronPath, [appPath])
+      const [code] = await emittedOnce(appProcess, 'close')
+      expect(code).to.equal(0)
+    })
+  })
+
   // Destroying webContents in its event listener is going to crash when
   // Electron is built in Debug mode.
   xdescribe('destroy()', () => {
@@ -904,6 +915,90 @@ describe('webContents module', () => {
 
       const promise = w.webContents.takeHeapSnapshot('')
       return expect(promise).to.be.eventually.rejectedWith(Error, 'takeHeapSnapshot failed')
+    })
+  })
+
+  describe('setBackgroundThrottling()', () => {
+    it('does not crash when allowing', (done) => {
+      w.webContents.setBackgroundThrottling(true)
+      done()
+    })
+
+    it('does not crash when disallowing', (done) => {
+      w.destroy()
+      w = new BrowserWindow({
+        show: false,
+        width: 400,
+        height: 400,
+        webPreferences: {
+          backgroundThrottling: true
+        }
+      })
+
+      w.webContents.setBackgroundThrottling(false)
+      done()
+    })
+
+    it('does not crash when called via BrowserWindow', (done) => {
+      w.setBackgroundThrottling(true)
+      done()
+    })
+  })
+
+  describe('getPrinterList()', () => {
+    before(function () {
+      if (!features.isPrintingEnabled()) {
+        return closeWindow(w).then(() => {
+          w = null
+          this.skip()
+        })
+      }
+    })
+
+    it('can get printer list', (done) => {
+      w.destroy()
+      w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          sandbox: true
+        }
+      })
+      w.loadURL('data:text/html,%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E')
+      w.webContents.once('did-finish-load', () => {
+        const printers = w.webContents.getPrinters()
+        assert.strictEqual(Array.isArray(printers), true)
+        done()
+      })
+    })
+  })
+
+  describe('printToPDF()', () => {
+    before(function () {
+      if (!features.isPrintingEnabled()) {
+        return closeWindow(w).then(() => {
+          w = null
+          this.skip()
+        })
+      }
+    })
+
+    it('can print to PDF', (done) => {
+      w.destroy()
+      w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          sandbox: true
+        }
+      })
+      w.loadURL('data:text/html,%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E')
+      w.webContents.once('did-finish-load', () => {
+        w.webContents.printToPDF({}, function (error, data) {
+          assert.strictEqual(error, null)
+          assert.strictEqual(data instanceof Buffer, true)
+          assert.notStrictEqual(data.length, 0)
+          done()
+        })
+      })
     })
   })
 })

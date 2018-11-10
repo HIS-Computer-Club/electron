@@ -51,7 +51,7 @@ int NodeMain(int argc, char* argv[]) {
     base::TaskScheduler::CreateAndStartWithDefaultParams("Electron");
 
     // Initialize gin::IsolateHolder.
-    JavascriptEnvironment gin_env;
+    JavascriptEnvironment gin_env(loop);
 
     // Explicitly register electron's builtin modules.
     NodeBindings::RegisterBuiltinModules();
@@ -84,7 +84,7 @@ int NodeMain(int argc, char* argv[]) {
     bool more;
     do {
       more = uv_run(env->event_loop(), UV_RUN_ONCE);
-      gin_env.platform()->DrainBackgroundTasks(env->isolate());
+      gin_env.platform()->DrainTasks(env->isolate());
       if (more == false) {
         node::EmitBeforeExit(env);
 
@@ -98,8 +98,9 @@ int NodeMain(int argc, char* argv[]) {
 
     exit_code = node::EmitExit(env);
     node::RunAtExit(env);
-    gin_env.platform()->DrainBackgroundTasks(env->isolate());
+    gin_env.platform()->DrainTasks(env->isolate());
     gin_env.platform()->CancelPendingDelayedTasks(env->isolate());
+    gin_env.platform()->UnregisterIsolate(env->isolate());
 
     node::FreeEnvironment(env);
   }

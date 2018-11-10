@@ -3,6 +3,7 @@ const ChildProcess = require('child_process')
 const { expect } = require('chai')
 const fs = require('fs')
 const path = require('path')
+const temp = require('temp').track()
 const util = require('util')
 const { closeWindow } = require('./window-helpers')
 
@@ -137,6 +138,44 @@ describe('asar package', function () {
       })
     })
 
+    describe('fs.copyFile', function () {
+      it('copies a normal file', function (done) {
+        const p = path.join(fixtures, 'asar', 'a.asar', 'file1')
+        const dest = temp.path()
+        fs.copyFile(p, dest, function (err) {
+          assert.strictEqual(err, null)
+          assert(fs.readFileSync(p).equals(fs.readFileSync(dest)))
+          done()
+        })
+      })
+
+      it('copies a unpacked file', function (done) {
+        const p = path.join(fixtures, 'asar', 'unpack.asar', 'a.txt')
+        const dest = temp.path()
+        fs.copyFile(p, dest, function (err) {
+          assert.strictEqual(err, null)
+          assert(fs.readFileSync(p).equals(fs.readFileSync(dest)))
+          done()
+        })
+      })
+    })
+
+    describe('fs.copyFileSync', function () {
+      it('copies a normal file', function () {
+        const p = path.join(fixtures, 'asar', 'a.asar', 'file1')
+        const dest = temp.path()
+        fs.copyFileSync(p, dest)
+        assert(fs.readFileSync(p).equals(fs.readFileSync(dest)))
+      })
+
+      it('copies a unpacked file', function () {
+        const p = path.join(fixtures, 'asar', 'unpack.asar', 'a.txt')
+        const dest = temp.path()
+        fs.copyFileSync(p, dest)
+        assert(fs.readFileSync(p).equals(fs.readFileSync(dest)))
+      })
+    })
+
     describe('fs.lstatSync', function () {
       it('handles path with trailing slash correctly', function () {
         const p = path.join(fixtures, 'asar', 'a.asar', 'link2', 'link2', 'file1')
@@ -147,6 +186,15 @@ describe('asar package', function () {
       it('returns information of root', function () {
         const p = path.join(fixtures, 'asar', 'a.asar')
         const stats = fs.lstatSync(p)
+        assert.strictEqual(stats.isFile(), false)
+        assert.strictEqual(stats.isDirectory(), true)
+        assert.strictEqual(stats.isSymbolicLink(), false)
+        assert.strictEqual(stats.size, 0)
+      })
+
+      it('returns information of root with stats as bigint', function () {
+        const p = path.join(fixtures, 'asar', 'a.asar')
+        const stats = fs.lstatSync(p, { bigint: false })
         assert.strictEqual(stats.isFile(), false)
         assert.strictEqual(stats.isDirectory(), true)
         assert.strictEqual(stats.isSymbolicLink(), false)
@@ -227,6 +275,18 @@ describe('asar package', function () {
       it('returns information of root', function (done) {
         const p = path.join(fixtures, 'asar', 'a.asar')
         fs.lstat(p, function (err, stats) {
+          assert.strictEqual(err, null)
+          assert.strictEqual(stats.isFile(), false)
+          assert.strictEqual(stats.isDirectory(), true)
+          assert.strictEqual(stats.isSymbolicLink(), false)
+          assert.strictEqual(stats.size, 0)
+          done()
+        })
+      })
+
+      it('returns information of root with stats as bigint', function (done) {
+        const p = path.join(fixtures, 'asar', 'a.asar')
+        fs.lstat(p, { bigint: false }, function (err, stats) {
           assert.strictEqual(err, null)
           assert.strictEqual(stats.isFile(), false)
           assert.strictEqual(stats.isDirectory(), true)
@@ -852,7 +912,7 @@ describe('asar package', function () {
         })
       })
 
-      xit('execFileSync executes binaries', function () {
+      it('execFileSync executes binaries', function () {
         const output = execFileSync(echo, ['test'])
         assert.strictEqual(String(output), 'test\n')
       })

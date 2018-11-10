@@ -1,4 +1,6 @@
 const assert = require('assert')
+const chai = require('chai')
+const dirtyChai = require('dirty-chai')
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
@@ -8,9 +10,13 @@ const ChildProcess = require('child_process')
 const { ipcRenderer, remote } = require('electron')
 const { closeWindow } = require('./window-helpers')
 const { resolveGetters } = require('./assert-helpers')
+const { emittedOnce } = require('./events-helpers')
 const { app, BrowserWindow, ipcMain, protocol, session, webContents } = remote
 const isCI = remote.getGlobal('isCi')
 const features = process.atomBinding('features')
+
+const { expect } = chai
+chai.use(dirtyChai)
 
 /* Most of the APIs here don't use standard callbacks */
 /* eslint-disable standard/no-callback-literal */
@@ -1268,5 +1274,98 @@ describe('chromium feature', () => {
         w.loadURL('about:blank')
       })
     })
+  })
+
+  describe('SpeechSynthesis', () => {
+    before(function () {
+      if (isCI || !features.isTtsEnabled()) {
+        this.skip()
+      }
+    })
+
+    it('should emit lifecycle events', async () => {
+      const sentence = `long sentence which will take at least a few seconds to
+          utter so that it's possible to pause and resume before the end`
+      const utter = new SpeechSynthesisUtterance(sentence)
+      // Create a dummy utterence so that speech synthesis state
+      // is initialized for later calls.
+      speechSynthesis.speak(new SpeechSynthesisUtterance())
+      speechSynthesis.cancel()
+      speechSynthesis.speak(utter)
+      // paused state after speak()
+      expect(speechSynthesis.paused).to.be.false()
+      await new Promise((resolve) => { utter.onstart = resolve })
+      // paused state after start event
+      expect(speechSynthesis.paused).to.be.false()
+
+      speechSynthesis.pause()
+      // paused state changes async, right before the pause event
+      expect(speechSynthesis.paused).to.be.false()
+      await new Promise((resolve) => { utter.onpause = resolve })
+      expect(speechSynthesis.paused).to.be.true()
+
+      speechSynthesis.resume()
+      await new Promise((resolve) => { utter.onresume = resolve })
+      // paused state after resume event
+      expect(speechSynthesis.paused).to.be.false()
+
+      await new Promise((resolve) => { utter.onend = resolve })
+    })
+  })
+})
+
+describe('font fallback', () => {
+  async function getRenderedFonts (html) {
+    const w = new BrowserWindow({ show: false })
+    try {
+      const loaded = emittedOnce(w.webContents, 'did-finish-load')
+      w.loadURL(`data:text/html,${html}`)
+      await loaded
+      w.webContents.debugger.attach()
+      const sendCommand = (...args) => new Promise((resolve, reject) => {
+        w.webContents.debugger.sendCommand(...args, (e, r) => {
+          if (e) { reject(e) } else { resolve(r) }
+        })
+      })
+      const { nodeId } = (await sendCommand('DOM.getDocument')).root.children[0]
+      await sendCommand('CSS.enable')
+      const { fonts } = await sendCommand('CSS.getPlatformFontsForNode', { nodeId })
+      return fonts
+    } finally {
+      w.close()
+    }
+  }
+
+  it('should use Helvetica for sans-serif on Mac, and Arial on Windows and Linux', async () => {
+    const html = `<body style="font-family: sans-serif">test</body>`
+    const fonts = await getRenderedFonts(html)
+    expect(fonts).to.be.an('array')
+    expect(fonts).to.have.length(1)
+    expect(fonts[0].familyName).to.equal({
+      'win32': 'Arial',
+      'darwin': 'Helvetica',
+      'linux': 'DejaVu Sans' // I think this depends on the distro? We don't specify a default.
+    }[process.platform])
+  })
+
+  it('should fall back to Japanese font for sans-serif Japanese script', async function () {
+    if (process.platform === 'linux') {
+      return this.skip()
+    }
+    const html = `
+    <html lang="ja-JP">
+      <head>
+        <meta charset="utf-8" />
+      </head>
+      <body style="font-family: sans-serif">test 智史</body>
+    </html>
+    `
+    const fonts = await getRenderedFonts(html)
+    expect(fonts).to.be.an('array')
+    expect(fonts).to.have.length(1)
+    expect(fonts[0].familyName).to.equal({
+      'win32': 'Meiryo',
+      'darwin': 'Hiragino Kaku Gothic ProN'
+    }[process.platform])
   })
 })

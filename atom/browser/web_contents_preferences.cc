@@ -24,6 +24,7 @@
 #include "content/public/common/web_preferences.h"
 #include "native_mate/dictionary.h"
 #include "net/base/filename_util.h"
+#include "services/service_manager/sandbox/switches.h"
 
 #if defined(OS_WIN)
 #include "ui/gfx/switches.h"
@@ -170,6 +171,10 @@ bool WebContentsPreferences::GetPreference(const base::StringPiece& name,
   return GetAsString(&preference_, name, value);
 }
 
+bool WebContentsPreferences::IsRemoteModuleEnabled() const {
+  return IsEnabled(options::kEnableRemoteModule, true);
+}
+
 bool WebContentsPreferences::GetPreloadPath(
     base::FilePath::StringType* path) const {
   DCHECK(path);
@@ -245,7 +250,7 @@ void WebContentsPreferences::AppendCommandLineSwitches(
   if (IsEnabled(options::kSandbox))
     command_line->AppendSwitch(switches::kEnableSandbox);
   else if (!command_line->HasSwitch(switches::kEnableSandbox))
-    command_line->AppendSwitch(::switches::kNoSandbox);
+    command_line->AppendSwitch(service_manager::switches::kNoSandbox);
 
   // Check if nativeWindowOpen is enabled.
   if (IsEnabled(options::kNativeWindowOpen))
@@ -265,6 +270,10 @@ void WebContentsPreferences::AppendCommandLineSwitches(
         command_line->AppendArg(customArg.GetString());
     }
   }
+
+  // Whether to enable the remote module
+  if (!IsRemoteModuleEnabled())
+    command_line->AppendSwitch(switches::kDisableRemoteModule);
 
   // Run Electron APIs and preload script in isolated world
   if (IsEnabled(options::kContextIsolation))
@@ -328,7 +337,7 @@ void WebContentsPreferences::AppendCommandLineSwitches(
       if (embedder) {
         auto* relay = NativeWindowRelay::FromWebContents(embedder);
         if (relay) {
-          auto* window = relay->window.get();
+          auto* window = relay->GetNativeWindow();
           if (window) {
             const bool visible = window->IsVisible() && !window->IsMinimized();
             if (!visible) {

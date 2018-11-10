@@ -41,7 +41,11 @@ def main():
   try:
     test_path = os.path.join(SOURCE_ROOT, 'spec', 'fixtures',
         'no-proprietary-codecs.js')
-    subprocess.check_call([electron, test_path] + sys.argv[1:])
+    env = dict(os.environ)
+    env['ELECTRON_ENABLE_STACK_DUMPING'] = 'true'
+    # FIXME: Enable after ELECTRON_ENABLE_LOGGING works again
+    # env['ELECTRON_ENABLE_LOGGING'] = 'true'
+    subprocess.check_call([electron, test_path] + sys.argv[1:], env=env)
   except subprocess.CalledProcessError as e:
     returncode = e.returncode
   except KeyboardInterrupt:

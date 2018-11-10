@@ -1396,6 +1396,46 @@ describe('BrowserWindow module', () => {
       })
     })
 
+    describe('"enableRemoteModule" option', () => {
+      const generateSpecs = (description, sandbox) => {
+        describe(description, () => {
+          const preload = path.join(fixtures, 'module', 'preload-remote.js')
+
+          it('enables the remote module by default', async () => {
+            const w = await openTheWindow({
+              show: false,
+              webPreferences: {
+                nodeIntegration: false,
+                preload,
+                sandbox
+              }
+            })
+            w.loadFile(path.join(fixtures, 'api', 'blank.html'))
+            const [, remote] = await emittedOnce(ipcMain, 'remote')
+            expect(remote).to.equal('object')
+          })
+
+          it('disables the remote module when false', async () => {
+            const w = await openTheWindow({
+              show: false,
+              webPreferences: {
+                nodeIntegration: false,
+                preload,
+                sandbox,
+                enableRemoteModule: false
+              }
+            })
+            w.loadFile(path.join(fixtures, 'api', 'blank.html'))
+            const [, remote] = await emittedOnce(ipcMain, 'remote')
+            expect(remote).to.equal('undefined')
+          })
+        })
+      }
+
+      generateSpecs('without sandbox', false)
+      generateSpecs('with sandbox', true)
+    })
+
     describe('"sandbox" option', () => {
       function waitForEvents (emitter, events, callback) {
         let count = events.length
@@ -1515,41 +1555,42 @@ describe('BrowserWindow module', () => {
         })
       })
 
-      it('should open windows in another domain with cross-scripting disabled', (done) => {
-        w.destroy()
-        w = new BrowserWindow({
+      it('should open windows in another domain with cross-scripting disabled', async () => {
+        const w = await openTheWindow({
           show: false,
           webPreferences: {
             sandbox: true,
-            preload: preload
+            preload
           }
         })
+
         ipcRenderer.send('set-web-preferences-on-next-new-window', w.webContents.id, 'preload', preload)
-        let popupWindow
         w.loadFile(path.join(fixtures, 'api', 'sandbox.html'), { search: 'window-open-external' })
-        w.webContents.once('new-window', (e, url, frameName, disposition, options) => {
-          assert.strictEqual(url, 'http://www.google.com/#q=electron')
-          assert.strictEqual(options.width, 505)
-          assert.strictEqual(options.height, 605)
-          ipcMain.once('child-loaded', function (event, openerIsNull, html) {
-            assert(openerIsNull)
-            assert.strictEqual(html, '<h1>http://www.google.com/#q=electron</h1>')
-            ipcMain.once('answer', function (event, exceptionMessage) {
-              assert(/Blocked a frame with origin/.test(exceptionMessage))
+        const expectedPopupUrl = 'http://www.google.com/#q=electron' // Set in the "sandbox.html".
 
-              // FIXME this popup window should be closed in sandbox.html
-              closeWindow(popupWindow, { assertSingleWindow: false }).then(() => {
-                popupWindow = null
-                done()
-              })
-            })
-            w.webContents.send('child-loaded')
-          })
-        })
+        // The page is going to open a popup that it won't be able to close.
+        // We have to close it from here later.
+        // XXX(alexeykuzmin): It will leak if the test fails too soon.
+        const [, popupWindow] = await emittedOnce(app, 'browser-window-created')
 
-        app.once('browser-window-created', function (event, window) {
-          popupWindow = window
-        })
+        // Wait for a message from the popup's preload script.
+        const [, openerIsNull, html, locationHref] = await emittedOnce(ipcMain, 'child-loaded')
+        expect(openerIsNull).to.be.true('window.opener is not null')
+        expect(html).to.equal(`<h1>${expectedPopupUrl}</h1>`,
+          'looks like a http: request has not been intercepted locally')
+        expect(locationHref).to.equal(expectedPopupUrl)
+
+        // Ask the page to access the popup.
+        w.webContents.send('touch-the-popup')
+        const [, exceptionMessage] = await emittedOnce(ipcMain, 'answer')
+
+        // We don't need the popup anymore, and its parent page can't close it,
+        // so let's close it from here before we run any checks.
+        await closeWindow(popupWindow, { assertSingleWindow: false })
+
+        expect(exceptionMessage).to.be.a('string',
+          `child's .document is accessible from its parent window`)
+        expect(exceptionMessage).to.match(/^Blocked a frame with origin/)
       })
 
       it('should inherit the sandbox setting in opened windows', (done) => {
@@ -1650,43 +1691,6 @@ describe('BrowserWindow module', () => {
             'dom-ready'
           ], done)
           w.loadFile(path.join(fixtures, 'api', 'sandbox.html'), { search: 'webcontents-events' })
-        })
-      })
-
-      it('can get printer list', (done) => {
-        w.destroy()
-        w = new BrowserWindow({
-          show: false,
-          webPreferences: {
-            sandbox: true,
-            preload: preload
-          }
-        })
-        w.loadURL('data:text/html,%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E')
-        w.webContents.once('did-finish-load', () => {
-          const printers = w.webContents.getPrinters()
-          assert.strictEqual(Array.isArray(printers), true)
-          done()
-        })
-      })
-
-      it('can print to PDF', (done) => {
-        w.destroy()
-        w = new BrowserWindow({
-          show: false,
-          webPreferences: {
-            sandbox: true,
-            preload: preload
-          }
-        })
-        w.loadURL('data:text/html,%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E')
-        w.webContents.once('did-finish-load', () => {
-          w.webContents.printToPDF({}, function (error, data) {
-            assert.strictEqual(error, null)
-            assert.strictEqual(data instanceof Buffer, true)
-            assert.notStrictEqual(data.length, 0)
-            done()
-          })
         })
       })
 
@@ -1954,6 +1958,16 @@ describe('BrowserWindow module', () => {
             resolve()
           })
           w.loadFile(path.join(fixtures, 'api', 'window-open-location-open.html'))
+        })
+      })
+
+      it('should have nodeIntegration disabled in child windows', async () => {
+        return new Promise((resolve, reject) => {
+          ipcMain.once('answer', (event, typeofProcess) => {
+            assert.strictEqual(typeofProcess, 'undefined')
+            resolve()
+          })
+          w.loadFile(path.join(fixtures, 'api', 'native-window-open-argv.html'))
         })
       })
     })
@@ -2358,14 +2372,33 @@ describe('BrowserWindow module', () => {
     })
     it('subscribes to frame updates (only dirty rectangle)', (done) => {
       let called = false
+      let gotInitialFullSizeFrame = false
+      const [contentWidth, contentHeight] = w.getContentSize()
       w.loadFile(path.join(fixtures, 'api', 'frame-subscriber.html'))
-      w.webContents.on('dom-ready', () => {
-        w.webContents.beginFrameSubscription(true, (data) => {
+      w.webContents.on('did-finish-load', () => {
+        w.webContents.beginFrameSubscription(true, (data, rect) => {
+          if (data.length === 0) {
+            // Chromium sometimes sends a 0x0 frame at the beginning of the
+            // page load.
+            return
+          }
+          if (rect.height === contentHeight && rect.width === contentWidth &&
+              !gotInitialFullSizeFrame) {
+            // The initial frame is full-size, but we're looking for a call
+            // with just the dirty-rect. The next frame should be a smaller
+            // rect.
+            gotInitialFullSizeFrame = true
+            return
+          }
           // This callback might be called twice.
           if (called) return
+          // We asked for just the dirty rectangle, so we expect to receive a
+          // rect smaller than the full size.
+          // TODO(jeremy): this is failing on windows currently; investigate.
+          // assert(rect.width < contentWidth || rect.height < contentHeight)
           called = true
 
-          assert.notStrictEqual(data.length, 0)
+          expect(data.length).to.equal(rect.width * rect.height * 4)
           w.webContents.endFrameSubscription()
           done()
         })
@@ -2955,11 +2988,20 @@ describe('BrowserWindow module', () => {
         c.show()
         assert.strictEqual(w.isEnabled(), false)
       })
-      it('enables parent window when closed', (done) => {
+      it('re-enables an enabled parent window when closed', (done) => {
         c.once('closed', () => {
           assert.strictEqual(w.isEnabled(), true)
           done()
         })
+        c.show()
+        c.close()
+      })
+      it('does not re-enable a disabled parent window when closed', (done) => {
+        c.once('closed', () => {
+          assert.strictEqual(w.isEnabled(), false)
+          done()
+        })
+        w.setEnabled(false)
         c.show()
         c.close()
       })

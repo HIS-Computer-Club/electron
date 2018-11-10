@@ -1,5 +1,11 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ales Pergl <alpergl@microsoft.com>
+Date: Thu, 20 Sep 2018 17:44:29 -0700
+Subject: build_gn.patch
+
+
 diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
-index 9e38ee0e592b..bd54ce154b13 100644
+index fcc00ee0e49f101cb1b10629747c4c4fa521776d..3232a0360e94e78621f7f672e3de4bdcc5f7b8d5 100644
 --- a/build/config/BUILDCONFIG.gn
 +++ b/build/config/BUILDCONFIG.gn
 @@ -123,6 +123,9 @@ if (current_os == "") {
@@ -12,7 +18,7 @@ index 9e38ee0e592b..bd54ce154b13 100644
    # Set to enable the official build level of optimization. This has nothing
    # to do with branding, but enables an additional level of optimization above
    # release (!is_debug). This might be better expressed as a tri-state
-@@ -539,6 +542,7 @@ default_compiler_configs = [
+@@ -536,6 +539,7 @@ default_compiler_configs = [
    "//build/config/compiler:thin_archive",
    "//build/config/coverage:default_coverage",
    "//build/config/sanitizers:default_sanitizer_flags",
@@ -20,25 +26,3 @@ index 9e38ee0e592b..bd54ce154b13 100644
  ]
  
  if (is_win) {
-diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
-index 9a10137aa405..bb33e5450eaa 100644
---- a/build/config/compiler/BUILD.gn
-+++ b/build/config/compiler/BUILD.gn
-@@ -579,10 +579,13 @@ config("compiler") {
-       ldflags += [ "-Wl,--lto-O0" ]
-     }
- 
--    cflags += [ "-fwhole-program-vtables" ]
--    if (!is_win) {
--      ldflags += [ "-fwhole-program-vtables" ]
--    }
-+    # -fwhole-program-vtables doesn't work well in Electron right now, as it's
-+    # not a single binary and the optimizations break interfaces used across
-+    # binary boundaries.
-+    # cflags += [ "-fwhole-program-vtables" ]
-+    # if (!is_win) {
-+    #  ldflags += [ "-fwhole-program-vtables" ]
-+    #}
- 
-     # Work-around for http://openradar.appspot.com/20356002
-     if (is_mac) {

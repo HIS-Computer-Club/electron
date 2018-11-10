@@ -1,5 +1,11 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: deepak1556 <hop2deep@gmail.com>
+Date: Thu, 20 Sep 2018 17:46:39 -0700
+Subject: stream_resource_handler.patch
+
+
 diff --git a/content/browser/loader/stream_resource_handler.h b/content/browser/loader/stream_resource_handler.h
-index 9f69994..ae8d1630 100644
+index b6f51bba48cd145d6bccaff649d7875cf0520b7d..1ee88dfacee3e9bf3e4393a32ebd719251709fb3 100644
 --- a/content/browser/loader/stream_resource_handler.h
 +++ b/content/browser/loader/stream_resource_handler.h
 @@ -11,6 +11,7 @@

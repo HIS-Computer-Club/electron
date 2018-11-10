@@ -1,8 +1,14 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: deepak1556 <hop2deep@gmail.com>
+Date: Thu, 20 Sep 2018 17:45:59 -0700
+Subject: frame_host_manager.patch
+
+
 diff --git a/content/browser/frame_host/render_frame_host_manager.cc b/content/browser/frame_host/render_frame_host_manager.cc
-index e6f6b3012b02..965b58e237ec 100644
+index 872e4609c94f1e052d623ae57c1279c72eb2c3f4..a59676004f2411631418bf12e2978623b9b27b53 100644
 --- a/content/browser/frame_host/render_frame_host_manager.cc
 +++ b/content/browser/frame_host/render_frame_host_manager.cc
-@@ -1834,6 +1834,18 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
+@@ -1960,6 +1960,18 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
    bool was_server_redirect = request.navigation_handle() &&
                               request.navigation_handle()->WasServerRedirect();
  
@@ -21,8 +27,8 @@ index e6f6b3012b02..965b58e237ec 100644
    if (frame_tree_node_->IsMainFrame()) {
      // Renderer-initiated main frame navigations that may require a
      // SiteInstance swap are sent to the browser via the OpenURL IPC and are
-@@ -1850,6 +1862,19 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
- 
+@@ -1979,6 +1991,19 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
+                                                request.common_params().url));
      no_renderer_swap_allowed |=
          request.from_begin_navigation() && !can_renderer_initiate_transfer;
 +
@@ -41,7 +47,7 @@ index e6f6b3012b02..965b58e237ec 100644
    } else {
      // Subframe navigations will use the current renderer, unless specifically
      // allowed to swap processes.
-@@ -1861,18 +1886,9 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
+@@ -1990,18 +2015,9 @@ RenderFrameHostManager::GetSiteInstanceForNavigationRequest(
    if (no_renderer_swap_allowed)
      return scoped_refptr<SiteInstance>(current_site_instance);
  
@@ -59,13 +65,13 @@ index e6f6b3012b02..965b58e237ec 100644
 -      request.dest_site_instance(), candidate_site_instance,
 +      request.dest_site_instance(), candidate_site_instance.get(),
        request.common_params().transition,
+       request.state() == NavigationRequest::FAILED,
        request.restore_type() != RestoreType::NONE, request.is_view_source(),
-       was_server_redirect);
 diff --git a/content/public/browser/content_browser_client.h b/content/public/browser/content_browser_client.h
-index 746760e8596c..99d9e0770f32 100644
+index 3be31602689cb93b965729cc4e35cf6d23a8ec2f..2c22cb1cfe0dddc97c00e5f4ff89de6b18bc232f 100644
 --- a/content/public/browser/content_browser_client.h
 +++ b/content/public/browser/content_browser_client.h
-@@ -181,6 +181,15 @@ class CONTENT_EXPORT ContentBrowserClient {
+@@ -196,6 +196,15 @@ class CONTENT_EXPORT ContentBrowserClient {
   public:
    virtual ~ContentBrowserClient() {}
  

@@ -10,6 +10,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 
 #include "ui/views/widget/widget_observer.h"
 
@@ -128,11 +129,15 @@ class NativeWindowViews : public NativeWindow,
   bool IsVisibleOnAllWorkspaces() override;
 
   gfx::AcceleratedWidget GetAcceleratedWidget() const override;
+  std::tuple<void*, int> GetNativeWindowHandlePointer() const override;
 
   gfx::Rect ContentBoundsToWindowBounds(const gfx::Rect& bounds) const override;
   gfx::Rect WindowBoundsToContentBounds(const gfx::Rect& bounds) const override;
 
   void UpdateDraggableRegions(std::unique_ptr<SkRegion> region);
+
+  void IncrementChildModals();
+  void DecrementChildModals();
 
 #if defined(OS_WIN)
   void SetIcon(HICON small_icon, HICON app_icon);
@@ -189,6 +194,10 @@ class NativeWindowViews : public NativeWindow,
                                         WPARAM w_param,
                                         LPARAM l_param);
 #endif
+
+  // Enable/disable:
+  bool ShouldBeEnabled();
+  void SetEnabledInternal(bool enabled);
 
   // NativeWindow:
   void HandleKeyboardEvent(
@@ -273,8 +282,11 @@ class NativeWindowViews : public NativeWindow,
   // has to been explicitly provided.
   std::unique_ptr<SkRegion> draggable_region_;  // used in custom drag.
 
-  // How many times the Disable has been called.
-  int disable_count_ = 0;
+  // Whether the window should be enabled based on user calls to SetEnabled()
+  bool is_enabled_ = true;
+  // How many modal children this window has;
+  // used to determine enabled state
+  unsigned int num_modal_children_ = 0;
 
   bool use_content_size_ = false;
   bool movable_ = true;

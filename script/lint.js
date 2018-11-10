@@ -8,16 +8,20 @@ const minimist = require('minimist')
 const path = require('path')
 
 const SOURCE_ROOT = path.normalize(path.dirname(__dirname))
+const DEPOT_TOOLS = path.resolve(SOURCE_ROOT, '..', 'third_party', 'depot_tools')
 
 const BLACKLIST = new Set([
   ['atom', 'browser', 'mac', 'atom_application.h'],
   ['atom', 'browser', 'mac', 'atom_application_delegate.h'],
   ['atom', 'browser', 'resources', 'win', 'resource.h'],
+  ['atom', 'browser', 'notifications', 'mac', 'notification_center_delegate.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'atom_menu_controller.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'atom_ns_window.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'atom_ns_window_delegate.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'atom_preview_item.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'atom_touch_bar.h'],
+  ['atom', 'browser', 'ui', 'cocoa', 'atom_inspectable_web_contents_view.h'],
+  ['atom', 'browser', 'ui', 'cocoa', 'event_dispatching_window.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'touch_bar_forward_declarations.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'NSColor+Hex.h'],
   ['atom', 'browser', 'ui', 'cocoa', 'NSString+ANSI.h'],
@@ -26,17 +30,6 @@ const BLACKLIST = new Set([
   ['atom', 'common', 'common_message_generator.h'],
   ['atom', 'common', 'node_includes.h'],
   ['atom', 'node', 'osfhandle.cc'],
-  ['brightray', 'browser', 'mac', 'bry_inspectable_web_contents_view.h'],
-  ['brightray', 'browser', 'mac', 'event_dispatching_window.h'],
-  ['brightray', 'browser', 'mac', 'notification_center_delegate.h'],
-  ['brightray', 'browser', 'win', 'notification_presenter_win7.h'],
-  ['brightray', 'browser', 'win', 'win32_desktop_notifications', 'common.h'],
-  ['brightray', 'browser', 'win', 'win32_desktop_notifications',
-    'desktop_notification_controller.cc'],
-  ['brightray', 'browser', 'win', 'win32_desktop_notifications',
-    'desktop_notification_controller.h'],
-  ['brightray', 'browser', 'win', 'win32_desktop_notifications', 'toast.h'],
-  ['brightray', 'browser', 'win', 'win32_notification.h'],
   ['spec', 'static', 'jquery-2.0.3.min.js']
 ].map(tokens => path.join(SOURCE_ROOT, ...tokens)))
 
@@ -48,9 +41,14 @@ function spawnAndCheckExitCode (cmd, args, opts) {
 
 const LINTERS = [ {
   key: 'c++',
-  roots: ['atom', 'brightray'],
+  roots: ['atom'],
   test: filename => filename.endsWith('.cc') || filename.endsWith('.h'),
   run: (opts, filenames) => {
+    if (opts.fix) {
+      spawnAndCheckExitCode('python', ['script/run-clang-format.py', '--fix', ...filenames])
+    } else {
+      spawnAndCheckExitCode('python', ['script/run-clang-format.py', ...filenames])
+    }
     const result = childProcess.spawnSync('cpplint.py', filenames, { encoding: 'utf8' })
     // cpplint.py writes EVERYTHING to stderr, including status messages
     if (result.stderr) {
@@ -61,7 +59,6 @@ const LINTERS = [ {
       }
     }
     if (result.status) {
-      if (opts.fix) spawnAndCheckExitCode('python', ['script/run-clang-format.py', ...filenames])
       process.exit(result.status)
     }
   }
@@ -70,7 +67,7 @@ const LINTERS = [ {
   roots: ['script'],
   test: filename => filename.endsWith('.py'),
   run: (opts, filenames) => {
-    const rcfile = path.normalize(path.join(SOURCE_ROOT, '..', 'third_party', 'depot_tools', 'pylintrc'))
+    const rcfile = path.join(DEPOT_TOOLS, 'pylintrc')
     const args = ['--rcfile=' + rcfile, ...filenames]
     const env = Object.assign({ PYTHONPATH: path.join(SOURCE_ROOT, 'script') }, process.env)
     spawnAndCheckExitCode('pylint.py', args, { env })
@@ -86,12 +83,41 @@ const LINTERS = [ {
     if (opts.fix) args.unshift('--fix')
     spawnAndCheckExitCode(cmd, args, { cwd: SOURCE_ROOT })
   }
+}, {
+  key: 'gn',
+  roots: ['.'],
+  test: filename => filename.endsWith('.gn') || filename.endsWith('.gni'),
+  run: (opts, filenames) => {
+    const allOk = filenames.map(filename => {
+      const env = Object.assign({
+        CHROMIUM_BUILDTOOLS_PATH: path.resolve(SOURCE_ROOT, '..', 'buildtools'),
+        DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+      }, process.env)
+      // Users may not have depot_tools in PATH.
+      env.PATH = `${env.PATH}${path.delimiter}${DEPOT_TOOLS}`
+      const args = ['format', filename]
+      if (!opts.fix) args.push('--dry-run')
+      const result = childProcess.spawnSync('gn', args, { env, stdio: 'inherit', shell: true })
+      if (result.status === 0) {
+        return true
+      } else if (result.status === 2) {
+        console.log(`GN format errors in "${filename}". Run 'gn format "${filename}"' or rerun with --fix to fix them.`)
+        return false
+      } else {
+        console.log(`Error running 'gn format --dry-run "${filename}"': exit code ${result.status}`)
+        return false
+      }
+    }).every(x => x)
+    if (!allOk) {
+      process.exit(1)
+    }
+  }
 }]
 
 function parseCommandLine () {
   let help
   const opts = minimist(process.argv.slice(2), {
-    boolean: [ 'c++', 'javascript', 'python', 'help', 'changed', 'fix', 'verbose' ],
+    boolean: [ 'c++', 'javascript', 'python', 'gn', 'help', 'changed', 'fix', 'verbose' ],
     alias: { 'c++': ['cc', 'cpp', 'cxx'], javascript: ['js', 'es'], python: 'py', changed: 'c', help: 'h', verbose: 'v' },
     unknown: arg => { help = true }
   })
@@ -134,7 +160,7 @@ async function findFiles (args, linter) {
   if (args.changed) {
     whitelist = await findChangedFiles(SOURCE_ROOT)
     if (!whitelist.size) {
-      return filenames
+      return []
     }
   }
 
@@ -160,15 +186,18 @@ async function findFiles (args, linter) {
     filenames = filenames.filter(x => whitelist.has(x))
   }
 
-  return filenames
+  // it's important that filenames be relative otherwise clang-format will
+  // produce patches with absolute paths in them, which `git apply` will refuse
+  // to apply.
+  return filenames.map(x => path.relative(SOURCE_ROOT, x))
 }
 
 async function main () {
   const opts = parseCommandLine()
 
   // no mode specified? run 'em all
-  if (!opts['c++'] && !opts.javascript && !opts.python) {
-    opts['c++'] = opts.javascript = opts.python = true
+  if (!opts['c++'] && !opts.javascript && !opts.python && !opts.gn) {
+    opts['c++'] = opts.javascript = opts.python = opts.gn = true
   }
 
   const linters = LINTERS.filter(x => opts[x.key])

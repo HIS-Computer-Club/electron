@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "atom/browser/native_window_observer.h"
@@ -152,6 +153,7 @@ class NativeWindow : public base::SupportsUserData,
   virtual gfx::NativeView GetNativeView() const = 0;
   virtual gfx::NativeWindow GetNativeWindow() const = 0;
   virtual gfx::AcceleratedWidget GetAcceleratedWidget() const = 0;
+  virtual std::tuple<void*, int> GetNativeWindowHandlePointer() const = 0;
 
   // Taskbar/Dock APIs.
   enum ProgressState {
@@ -254,6 +256,7 @@ class NativeWindow : public base::SupportsUserData,
   void NotifyWindowLeaveFullScreen();
   void NotifyWindowEnterHtmlFullScreen();
   void NotifyWindowLeaveHtmlFullScreen();
+  void NotifyWindowAlwaysOnTopChanged();
   void NotifyWindowExecuteWindowsCommand(const std::string& command);
   void NotifyTouchBarItemInteraction(const std::string& item_id,
                                      const base::DictionaryValue& details);
@@ -345,18 +348,20 @@ class NativeWindow : public base::SupportsUserData,
 class NativeWindowRelay
     : public content::WebContentsUserData<NativeWindowRelay> {
  public:
-  explicit NativeWindowRelay(base::WeakPtr<NativeWindow> window);
+  static const void* const kNativeWindowRelayUserDataKey;
+
+  static void CreateForWebContents(content::WebContents*,
+                                   base::WeakPtr<NativeWindow>);
+
   ~NativeWindowRelay() override;
 
-  static void* UserDataKey() {
-    return content::WebContentsUserData<NativeWindowRelay>::UserDataKey();
-  }
-
-  void* key;
-  base::WeakPtr<NativeWindow> window;
+  NativeWindow* GetNativeWindow() const { return native_window_.get(); }
 
  private:
   friend class content::WebContentsUserData<NativeWindow>;
+  explicit NativeWindowRelay(base::WeakPtr<NativeWindow> window);
+
+  base::WeakPtr<NativeWindow> native_window_;
 };
 
 }  // namespace atom

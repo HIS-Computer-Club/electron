@@ -1,4 +1,5 @@
 const assert = require('assert')
+const chai = require('chai')
 const http = require('http')
 const https = require('https')
 const path = require('path')
@@ -9,6 +10,7 @@ const { closeWindow } = require('./window-helpers')
 
 const { ipcRenderer, remote } = require('electron')
 const { ipcMain, session, BrowserWindow, net } = remote
+const { expect } = chai
 
 /* The whole session API doesn't use standard callbacks */
 /* eslint-disable standard/no-callback-literal */
@@ -421,6 +423,38 @@ describe('session module', () => {
       })
     })
 
+    it('can set options for the save dialog', (done) => {
+      downloadServer.listen(0, '127.0.0.1', () => {
+        const filePath = path.join(__dirname, 'fixtures', 'mock.pdf')
+        const port = downloadServer.address().port
+        const options = {
+          window: null,
+          title: 'title',
+          message: 'message',
+          buttonLabel: 'buttonLabel',
+          nameFieldLabel: 'nameFieldLabel',
+          defaultPath: '/',
+          filters: [{
+            name: '1', extensions: ['.1', '.2']
+          }, {
+            name: '2', extensions: ['.3', '.4', '.5']
+          }],
+          showsTagField: true,
+          securityScopedBookmarks: true
+        }
+
+        ipcRenderer.sendSync('set-download-option', true, false, filePath, options)
+        w.webContents.downloadURL(`${url}:${port}`)
+        ipcRenderer.once('download-done', (event, state, url,
+          mimeType, receivedBytes,
+          totalBytes, disposition,
+          filename, savePath, dialogOptions) => {
+          expect(dialogOptions).to.deep.equal(options)
+          done()
+        })
+      })
+    })
+
     describe('when a save path is specified and the URL is unavailable', () => {
       it('does not display a save dialog and reports the done state as interrupted', (done) => {
         ipcRenderer.sendSync('set-download-option', false, false)
@@ -469,19 +503,58 @@ describe('session module', () => {
       })
     })
 
-    xit('handles requests from partition', (done) => {
+    it('handles requests from partition', (done) => {
       w.webContents.on('did-finish-load', () => done())
       w.loadURL(`${protocolName}://fake-host`)
     })
   })
 
   describe('ses.setProxy(options, callback)', () => {
+    let server = null
+    let customSession = null
+
+    beforeEach(() => {
+      customSession = session.fromPartition('proxyconfig')
+    })
+
+    afterEach(() => {
+      if (server) {
+        server.close()
+      }
+      if (customSession) {
+        customSession.destroy()
+      }
+    })
+
     it('allows configuring proxy settings', (done) => {
       const config = { proxyRules: 'http=myproxy:80' }
-      session.defaultSession.setProxy(config, () => {
-        session.defaultSession.resolveProxy('http://localhost', (proxy) => {
+      customSession.setProxy(config, () => {
+        customSession.resolveProxy('http://localhost', (proxy) => {
           assert.strictEqual(proxy, 'PROXY myproxy:80')
           done()
+        })
+      })
+    })
+
+    it('allows configuring proxy settings with pacScript', (done) => {
+      server = http.createServer((req, res) => {
+        const pac = `
+          function FindProxyForURL(url, host) {
+            return "PROXY myproxy:8132";
+          }
+        `
+        res.writeHead(200, {
+          'Content-Type': 'application/x-ns-proxy-autoconfig'
+        })
+        res.end(pac)
+      })
+      server.listen(0, '127.0.0.1', () => {
+        const config = { pacScript: `http://127.0.0.1:${server.address().port}` }
+        customSession.setProxy(config, () => {
+          customSession.resolveProxy('http://localhost', (proxy) => {
+            assert.strictEqual(proxy, 'PROXY myproxy:8132')
+            done()
+          })
         })
       })
     })
@@ -491,8 +564,8 @@ describe('session module', () => {
         proxyRules: 'http=myproxy:80',
         proxyBypassRules: '<local>'
       }
-      session.defaultSession.setProxy(config, () => {
-        session.defaultSession.resolveProxy('http://localhost', (proxy) => {
+      customSession.setProxy(config, () => {
+        customSession.resolveProxy('http://localhost', (proxy) => {
           assert.strictEqual(proxy, 'DIRECT')
           done()
         })
@@ -658,7 +731,7 @@ describe('session module', () => {
         const downloadUrl = `http://127.0.0.1:${port}/assets/logo.png`
         const callback = (event, state, url, mimeType,
           receivedBytes, totalBytes, disposition,
-          filename, savePath, urlChain,
+          filename, savePath, dialogOptions, urlChain,
           lastModifiedTime, eTag) => {
           if (state === 'cancelled') {
             const options = {

@@ -81,9 +81,20 @@ void AtomRendererClient::DidCreateScriptContext(
     content::RenderFrame* render_frame) {
   RendererClientBase::DidCreateScriptContext(context, render_frame);
 
-  // Only allow node integration for the main frame, unless it is a devtools
-  // extension page.
-  if (!render_frame->IsMainFrame() && !IsDevToolsExtension(render_frame))
+  // Only allow node integration for the main frame of the top window, unless it
+  // is a devtools extension page. Allowing child frames or child windows to
+  // have node integration would result in memory leak, since we don't destroy
+  // node environment when script context is destroyed.
+  //
+  // DevTools extensions do not follow this rule because our implementation
+  // requires node integration in iframes to work. And usually DevTools
+  // extensions do not dynamically add/remove iframes.
+  //
+  // TODO(zcbenz): Do not create Node environment if node integration is not
+  // enabled.
+  if (!(render_frame->IsMainFrame() &&
+        !render_frame->GetWebFrame()->Opener()) &&
+      !IsDevToolsExtension(render_frame))
     return;
 
   injected_frames_.insert(render_frame);

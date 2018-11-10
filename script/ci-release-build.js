@@ -1,4 +1,4 @@
-require('dotenv-safe').load()
+if (!process.env.CI) require('dotenv-safe').load()
 
 const assert = require('assert')
 const request = require('request')
@@ -20,6 +20,11 @@ const circleCIJobs = [
 const vstsJobs = [
   'electron-release-mas-x64',
   'electron-release-osx-x64'
+]
+
+const vstsArmJobs = [
+  'electron-arm-testing',
+  'electron-arm64-testing'
 ]
 
 async function makeRequest (requestOptions, parseResponse) {
@@ -57,14 +62,8 @@ async function circleCIcall (buildUrl, targetBranch, job, options) {
     }
   }
 
-  if (options.ghRelease) {
-    buildRequest.build_parameters.ELECTRON_RELEASE = 1
-  } else {
-    buildRequest.build_parameters.RUN_RELEASE_BUILD = 'true'
-  }
-
-  if (options.automaticRelease) {
-    buildRequest.build_parameters.AUTO_RELEASE = 'true'
+  if (!options.ghRelease) {
+    buildRequest.build_parameters.UPLOAD_TO_S3 = 1
   }
 
   const circleResponse = await makeRequest({
@@ -135,7 +134,9 @@ function buildCircleCI (targetBranch, options) {
 }
 
 async function buildVSTS (targetBranch, options) {
-  if (options.job) {
+  if (options.armTest) {
+    assert(vstsArmJobs.includes(options.job), `Unknown VSTS CI arm test job name: ${options.job}. Valid values are: ${vstsArmJobs}.`)
+  } else if (options.job) {
     assert(vstsJobs.includes(options.job), `Unknown VSTS CI job name: ${options.job}. Valid values are: ${vstsJobs}.`)
   }
   console.log(`Triggering VSTS to run build on branch: ${targetBranch} with release flag.`)
@@ -143,8 +144,12 @@ async function buildVSTS (targetBranch, options) {
     ELECTRON_RELEASE: 1
   }
 
-  if (!options.ghRelease) {
-    environmentVariables.UPLOAD_TO_S3 = 1
+  if (options.armTest) {
+    environmentVariables.CIRCLE_BUILD_NUM = options.circleBuildNum
+  } else {
+    if (!options.ghRelease) {
+      environmentVariables.UPLOAD_TO_S3 = 1
+    }
   }
 
   const requestOpts = {
@@ -172,7 +177,8 @@ async function buildVSTS (targetBranch, options) {
 async function callVSTSBuild (build, targetBranch, environmentVariables) {
   const buildBody = {
     definition: build,
-    sourceBranch: targetBranch
+    sourceBranch: targetBranch,
+    priority: 'high'
   }
   if (Object.keys(environmentVariables).length !== 0) {
     buildBody.parameters = JSON.stringify(environmentVariables)
@@ -226,12 +232,13 @@ module.exports = runRelease
 
 if (require.main === module) {
   const args = require('minimist')(process.argv.slice(2), {
-    boolean: ['ghRelease', 'automaticRelease']
+    boolean: ['ghRelease', 'armTest']
   })
   const targetBranch = args._[0]
   if (args._.length < 1) {
     console.log(`Trigger CI to build release builds of electron.
-    Usage: ci-release-build.js [--job=CI_JOB_NAME] [--ci=CircleCI|AppVeyor|VSTS] [--ghRelease] [--automaticRelease] TARGET_BRANCH
+    Usage: ci-release-build.js [--job=CI_JOB_NAME] [--ci=CircleCI|AppVeyor|VSTS]
+    [--ghRelease] [--armTest] [--circleBuildNum=xxx] TARGET_BRANCH
     `)
     process.exit(0)
   }

@@ -162,10 +162,12 @@ class App : public AtomBrowserClient::Delegate,
       const content::ChildProcessData& data) override;
   void BrowserChildProcessHostDisconnected(
       const content::ChildProcessData& data) override;
-  void BrowserChildProcessCrashed(const content::ChildProcessData& data,
-                                  int exit_code) override;
-  void BrowserChildProcessKilled(const content::ChildProcessData& data,
-                                 int exit_code) override;
+  void BrowserChildProcessCrashed(
+      const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override;
+  void BrowserChildProcessKilled(
+      const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override;
 
  private:
   void SetAppPath(const base::FilePath& app_path);
@@ -201,6 +203,7 @@ class App : public AtomBrowserClient::Delegate,
   v8::Local<v8::Value> GetGPUFeatureStatus(v8::Isolate* isolate);
   v8::Local<v8::Promise> GetGPUInfo(v8::Isolate* isolate,
                                     const std::string& info_type);
+  void EnableSandbox(mate::Arguments* args);
   void EnableMixedSandbox(mate::Arguments* args);
 
 #if defined(OS_MACOSX)

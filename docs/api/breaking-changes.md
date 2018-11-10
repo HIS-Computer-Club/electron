@@ -6,6 +6,21 @@ Breaking changes will be documented here, and deprecation warnings added to JS c
 
 The `FIXME` string is used in code comments to denote things that should be fixed for future releases. See https://github.com/electron/electron/search?q=fixme
 
+# Planned Breaking API Changes (5.0)
+
+## `new BrowserWindow({ webPreferences })`
+
+The following `webPreferences` option default values are deprecated in favor of the new defaults listed below.
+
+| Property | Deprecated Default | New Default |
+|----------|--------------------|-------------|
+| `contextIsolation` | `false` | `true` |
+| `nodeIntegration` | `true` | `false` |
+| `webviewTag` | `nodeIntegration` if set else `true` | `false` |
+
+## `nativeWindowOpen`
+
+Child windows opened with the `nativeWindowOpen` option will always have Node.js integration disabled.
 
 # Planned Breaking API Changes (4.0)
 
@@ -20,7 +35,7 @@ app.makeSingleInstance(function (argv, cwd) {
 })
 // Replace with
 app.requestSingleInstanceLock()
-app.on('second-instance', function (argv, cwd) {
+app.on('second-instance', function (event, argv, cwd) {
 
 })
 ```
@@ -32,6 +47,14 @@ app.on('second-instance', function (argv, cwd) {
 app.releaseSingleInstance()
 // Replace with
 app.releaseSingleInstanceLock()
+```
+
+## `app.getGPUInfo`
+
+```js
+app.getGPUInfo('complete')
+// Now behaves the same with `basic` on macOS
+app.getGPUInfo('basic')
 ```
 
 
